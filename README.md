@@ -74,10 +74,10 @@ This repo reflects an active, iterative hardware development process (you'll see
 
 - **Xilinx Vivado 2025.2.1** (the UltraScale+ device on this board needs a Vivado version that supports it)
 - **Opal Kelly board files for Vivado** — a separate download from Opal Kelly, needed so Vivado recognizes the `opalkelly.com:xem8320-au25p:...` board definition. Either install it into Vivado's global board repository, or point `create_bd.tcl`'s `board.repoPaths` at wherever you unpacked it.
-- **Opal Kelly FrontPanel SDK** — ships both the low-level API/IP core (`FrontPanel-Vivado-IP-Dist`, needed by `create_bd.tcl` as a Vivado IP repository) and a Python binding (`ok` module) used by every host script here.
-- **Digilent Vivado IP repository** (`ip_Digilent_vivado`) — for the ZmodAWG controller IP core, also referenced by `create_bd.tcl` as an IP repository.
+- **Opal Kelly FrontPanel SDK** — ships both the low-level API/IP core (`FrontPanel-Vivado-IP-Dist`, needed by `create_bd.tcl` as a Vivado IP repository) and a Python binding (`ok` module) used by every host script here. **This is not bundled in this repo** — it's a gated download that requires a free Opal Kelly account, so grab it directly from their site before you start.
+- **Digilent Vivado IP repository** (`ip_Digilent_vivado`) — for the ZmodAWG controller IP core, also referenced by `create_bd.tcl` as an IP repository. Also not bundled here — comes from Digilent's own distribution.
 - **Python 3** with `numpy` and `pyusb` (no `requirements.txt` yet — install these manually)
-- On Linux, `host/install.sh` automates FrontPanel SDK extraction + udev rules (so you don't need `sudo` every time you plug in a board) + the Python dependencies above
+- On Linux, `host/install.sh` automates FrontPanel SDK extraction + udev rules (so you don't need `sudo` every time you plug in a board) + the Python dependencies above — but it still expects you to have already downloaded the FrontPanel SDK tarball yourself (see the script's own comments for where it looks)
 
 This repo's own `create_bd.tcl` was verified end-to-end (fresh checkout → block design, 0 errors, all warnings matching the project's known-good baseline) with Vivado 2025.2.1 on Linux before publishing.
 
