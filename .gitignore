@@ -1,3 +1,10 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# Vendor SDKs/IP that require a gated login to download -- never bundle these,
+# just guard against accidentally dropping a local copy into this checkout.
+FrontPanel*/
+ip_Digilent_vivado/
+*.tgz
+*.tar.gz
