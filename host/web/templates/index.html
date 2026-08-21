@@ -1,0 +1,2440 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>AWG step-16 Control Panel</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0f1115;
+    --card: #1a1d24;
+    --border: #2c3038;
+    --text: #e6e8eb;
+    --muted: #9aa0a8;
+    --accent: #4f9dff;
+    --ok: #35c979;
+    --bad: #ff5c5c;
+    --warn: #ffb020;
+    /* Type scale — every font-size in this file is one of these 7 steps.
+       Values were already clustered in this range; this just names them
+       so new rules reuse a step instead of eyeballing a new px value. */
+    --fs-2xs: 16px;
+    --fs-xs: 17px;
+    --fs-sm: 18px;
+    --fs-base: 20px;
+    --fs-md: 21px;
+    --fs-lg: 23px;
+    --fs-xl: 32px;
+    /* Spacing scale — covers margin/padding/gap on layout-level rules.
+       1px-3px "hairline" paddings (icon nudges, table cell padding) are
+       left as literals on purpose, they're not part of the rhythm. */
+    --sp-1: 4px;
+    --sp-2: 6px;
+    --sp-3: 8px;
+    --sp-4: 10px;
+    --sp-5: 12px;
+    --sp-6: 16px;
+    --sp-7: 20px;
+    --sp-8: 24px;
+    /* Radius scale — 0 (flat, e.g. active tab underline state) is left
+       as a literal, it's "no radius" rather than a scale step. */
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --radius-xl: 10px;
+    --radius-pill: 999px;
+  }
+  /* Map this app's existing color identity onto Bootstrap's CSS custom
+     properties (2026-08-03, full Bootstrap adoption) — real Bootstrap
+     components (card/btn/nav-tabs/table/badge/form-control) via
+     data-bs-theme="dark", but keeping the accent blue/near-black background
+     this app already had rather than switching to Bootstrap's default dark
+     grays. This is Bootstrap's own supported theming mechanism (CSS
+     variables), not a workaround. */
+  [data-bs-theme="dark"] {
+    --bs-body-bg: var(--bg);
+    --bs-body-color: var(--text);
+    --bs-border-color: var(--border);
+    --bs-border-color-translucent: var(--border);
+    --bs-emphasis-color: var(--text);
+    --bs-secondary-color: var(--muted);
+    --bs-tertiary-bg: var(--card);
+    --bs-tertiary-color: var(--muted);
+    --bs-primary: var(--accent);
+    --bs-primary-rgb: 79, 157, 255;
+    --bs-success: var(--ok);
+    --bs-success-rgb: 53, 201, 121;
+    --bs-danger: var(--bad);
+    --bs-danger-rgb: 255, 92, 92;
+    --bs-link-color: var(--accent);
+    --bs-link-hover-color: var(--accent);
+    --bs-card-bg: var(--card);
+    --bs-card-border-color: var(--border);
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body {
+    margin: 0 auto;
+    max-width: 1400px;
+    padding: var(--sp-8);
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  h1 {
+    font-size: var(--fs-xl);
+    font-weight: 600;
+    margin: 0 0 var(--sp-1);
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: var(--fs-base);
+    margin: 0 0 var(--sp-7);
+  }
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-5);
+    margin-bottom: var(--sp-7);
+  }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-md);
+    padding: var(--sp-3) var(--sp-6);
+    font-size: var(--fs-md);
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  /* Secondary/"Cancel" variant — used by the inline confirm prompt (see
+     inlineConfirm() in the script) so Cancel doesn't compete visually with
+     the primary blue Confirm button next to it. */
+  .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  .timestamp { color: var(--muted); font-size: var(--fs-sm); }
+  /* .boards/.card/.card-head/.badge.* removed 2026-08-03 (full Bootstrap
+     conversion) — real Bootstrap .row/.row-cols-*, .card/.card-header/
+     .card-body, and .badge.text-bg-* now used directly in markup instead;
+     colors still match this app's palette via the [data-bs-theme="dark"]
+     CSS-variable overrides above, not hand-rolled color rules per class. */
+  dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--sp-1) var(--sp-5);
+    margin: 0;
+    font-size: var(--fs-base);
+  }
+  dt { color: var(--muted); }
+  dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  .error { color: var(--bad); font-size: var(--fs-base); }
+  /* Master board not connected (2026-08-13) — dims Control/Calibration tab
+     buttons instead of using the native `disabled` attribute, specifically
+     so a click still fires and the JS interceptor (see updateConnectionLockUI())
+     can show the "why" message rather than silently doing nothing. */
+  button.hw-locked { opacity: 0.45; cursor: not-allowed; }
+  .init-panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    padding: var(--sp-6);
+    margin-bottom: var(--sp-7);
+  }
+  .phase-list {
+    list-style: none;
+    margin: var(--sp-5) 0 0;
+    padding: 0;
+    font-size: var(--fs-base);
+  }
+  .phase-list li {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-3);
+    padding: var(--sp-1) 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .phase-list li:last-child { border-bottom: none; }
+  .phase-icon { width: 16px; flex: none; }
+  .phase-icon.ok { color: var(--ok); }
+  .phase-icon.fail { color: var(--bad); }
+  .phase-icon.warn { color: var(--warn); }
+  .phase-icon.pending { color: var(--muted); }
+  .phase-item.current .phase-name { color: var(--text); font-weight: 600; }
+  .phase-name { color: var(--muted); min-width: 140px; }
+  /* .phase-error and the generic input[type=text/number] rule removed
+     2026-08-03 — phase errors use Bootstrap's text-danger utility now, and
+     every remaining <input> either has Bootstrap's .form-control or (for
+     the compact slot-freq widget) its own more-specific rule that already
+     overrides every property the generic rule used to set. */
+  /* Each card's operational area is broken into labeled sub-panels
+     (Playback / Trigger Group / Trigger Delay) instead of one long stack
+     of rows under a single divider — a faint fill + border reads as a
+     distinct instrument panel, and the all-caps label tells you what
+     you're looking at without reading every row. */
+  .card-section {
+    margin-top: var(--sp-5);
+    padding: var(--sp-4) var(--sp-5) var(--sp-5);
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+  .card-section-label {
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: var(--sp-3);
+  }
+  .card-section .ctrl-row:last-child { margin-bottom: 0; }
+  .card-section .result-box:last-child { margin-bottom: 0; }
+  .ctrl-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--sp-3);
+    margin-bottom: var(--sp-3);
+    font-size: var(--fs-base);
+  }
+  .ctrl-row label:first-child { color: var(--muted); width: 60px; flex: none; }
+  .ch-boxes { display: flex; gap: var(--sp-2); }
+  .ch-box { display: flex; align-items: center; gap: 1px; color: var(--text); }
+  .ch-box input[type="checkbox"] { margin: 0; }
+  .ch-box select {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 1px 2px;
+    font-size: var(--fs-sm);
+    margin-left: 2px;
+  }
+  .ctrl-row button { padding: var(--sp-2) var(--sp-5); font-size: var(--fs-base); }
+  .result-box { margin-top: var(--sp-3); font-size: var(--fs-sm); }
+  .result-box:empty { display: none; }
+  .muted-text { color: var(--muted); }
+  .slot-list { list-style: none; margin: var(--sp-1) 0 0; padding: 0; }
+  .slots-container { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; flex: 1; }
+  .slot-item {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 2px var(--sp-1) 2px var(--sp-3);
+  }
+  /* .slot-freq/.slot-unit removed 2026-08-03 (per user feedback: DDR
+     playback should be arbitrary uploaded waveform data, not a host-
+     generated sine wave from a typed frequency — that's what Sine mode's
+     frequency fields are for now) — replaced by .slot-file/
+     .slot-file-status below. */
+  .slot-file { font-size: var(--fs-sm); max-width: 160px; }
+  .slot-file-status { color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
+  .slot-remove {
+    background: transparent;
+    border: none;
+    color: var(--bad);
+    cursor: pointer;
+    font-size: var(--fs-lg);
+    line-height: 1;
+    padding: 0 var(--sp-1);
+  }
+  .slot-remove:disabled { opacity: 0.3; cursor: default; }
+  .add-slot-btn {
+    background: transparent;
+    border: 1px dashed var(--border);
+    color: var(--muted);
+    border-radius: var(--radius-md);
+    padding: 3px var(--sp-4);
+    cursor: pointer;
+    font-size: var(--fs-base);
+  }
+  /* .ddr-table/.tabs/.tab-btn*/.pill-tab.active/.bs-nav-tabs/.bs-nav-link*
+     removed 2026-08-03 (full Bootstrap conversion) — real Bootstrap
+     table/table-bordered, and nav/nav-tabs/nav-link, used directly in
+     markup instead now. */
+  .calib-table input[type="text"], .calib-table input[type="number"] { width: 90px; }
+  /* coef | live | flash | new value (2026-08-03: added the flash column
+     when Register/Flash sub-tabs were merged into one view) — the label
+     column (1) stays left-aligned, the 3 value columns right-aligned. */
+  .calib-table td:nth-child(2), .calib-table td:nth-child(3), .calib-table td:nth-child(4) { text-align: right; }
+  .calib-table tr { transition: opacity 0.15s; }
+  /* Each channel card always shows all 4 Mult/Add x HG/LG rows (2026-08-03,
+     replacing the old single 32-row table + "show all" toggle) — the pair
+     that isn't wired to the channel's current scale range is just dimmed,
+     not hidden, since there's no longer a "collapsed" state to expand from. */
+  .calib-table tr.row-inactive { opacity: 0.35; }
+  /* Overview table (2026-08-03, converted to real Bootstrap table/
+     table-bordered/table-sm — was a hand-rolled .ddr-table): one row per
+     board, 8 channels' scale/mult/add as repeated columns, wrapped in
+     Bootstrap's .table-responsive for horizontal scroll on narrow viewports.
+     Data cells right-aligned/tabular-nums (Bootstrap tables don't do this by
+     default, but it matches the numeric-column convention used throughout
+     this app); board-id centered and row-label (scale/mult/add) left —
+     targeted by class, not nth-child()/:first-child, since the board-id
+     cell's rowspan="3" means "mult"/"add" are each their own row's first
+     (and only) leading cell, not a consistent Nth position across all 3
+     rows (found 2026-08-03: a positional selector only ever matched "scale"). */
+  .calib-overview-table td { text-align: right; font-variant-numeric: tabular-nums; }
+  .calib-overview-table td.overview-board-id { text-align: center; }
+  .calib-overview-table td.overview-row-label { text-align: left; }
+  .calib-overview-table thead th { text-align: center; }
+  /* .scale-radio*/.toggle-group/.toggle-btn* removed 2026-08-03 (full
+     Bootstrap conversion) — real Bootstrap form-check (scale radios) and
+     btn-group/btn (Si5332 output ON/OFF toggle) used directly in markup. */
+  /* +/-1.25V and +/-5V toggle buttons (2026-08-03, per user feedback):
+     equal width so the two buttons in the group don't visually shrink to
+     fit their own (different-length) label — same font size either way,
+     Bootstrap's own .btn already centers the label within that width. */
+  .scale-range-btn { min-width: 4.5em; }
+  .calib-card { max-width: 720px; margin-bottom: var(--sp-6); }
+  .calib-card table { width: 100%; }
+  /* Calibration tab: one card per output channel (scale range + its 4
+     Mult/Add x HG/LG coefficients together), 2026-08-03 — replaces the old
+     layout of one "Scale Config" card + one "Calib Coef" card, per user
+     feedback that scale and calib belong together since they're the same
+     physical channel's settings. Grid is now real Bootstrap .row/.row-cols-*
+     (see calibSectionHtml()) — this rule used to be a hand-rolled CSS grid
+     that fought with Bootstrap's flex-based row-cols-* once both were
+     applied to the same element (found 2026-08-03 during the full
+     Bootstrap conversion: display:grid here silently won over row-cols-*). */
+  .channel-card { max-width: none; margin-bottom: 0; }
+  /* Si5332 outputs table: short columns, .calib-card's width:100% would
+     stretch them all the way to the card's far edge — force auto width so
+     the label/badge/buttons sit right next to each other instead. */
+  .calib-card table.si5332-outputs-table { width: auto; }
+</style>
+</head>
+<body>
+  <h1>AWG step-16 — Multi-Board Control Panel</h1>
+  <p class="subtitle">Status is not polled in the background, to avoid interfering with trigger timing — read once on load, updated only when you click Refresh or after an action.</p>
+  <p class="text-secondary small" id="server-info">Server IP: loading...</p>
+
+  <div id="connection-banner" class="alert alert-danger d-none" role="alert">
+    &#9888; Master board not connected — click <strong>Initialize System</strong> to connect. Other controls are locked until then.
+  </div>
+
+  <ul class="nav nav-tabs mb-4">
+    <li class="nav-item"><button type="button" class="nav-link active" id="tab-btn-control" onclick="switchTab('control')">Control</button></li>
+    <li class="nav-item"><button type="button" class="nav-link" id="tab-btn-calibration" onclick="switchTab('calibration')">AWG Scale/Calib</button></li>
+    <li class="nav-item"><button type="button" class="nav-link" id="tab-btn-diagnostics" onclick="switchTab('diagnostics')">Ext Clock</button></li>
+    <li class="nav-item"><button type="button" class="nav-link" id="tab-btn-ifftcal" onclick="switchTab('ifftcal')">IFFT Calibration</button></li>
+  </ul>
+
+  <div id="tab-control" class="tab-panel">
+  <div id="control-overview">
+  <div class="d-flex align-items-center gap-3 mb-2 flex-wrap">
+    <button type="button" class="btn btn-primary" id="test-label-1" onclick="toggleTest1Panel()">test1</button>
+    <button type="button" class="btn btn-primary" id="test-label-2" onclick="toggleRotationPanel('test2')">test2</button>
+    <button type="button" class="btn btn-primary" id="test-label-3" onclick="toggleRotationPanel('test3')">test3</button>
+  </div>
+
+  <div class="card mb-4" id="test1-panel" style="display:none">
+    <div class="card-body">
+      <div class="card-section-label">test1 — 6x DC + 2x RF (board 0)</div>
+      <p class="muted-text">
+        DC 通道（z0-z2）可選 Fixed（固定電壓）或 Ramp（2026-08-21 新增：
+        輸入 start 電壓 + 斜率 V/s，正負決定上升/下降方向，電壓碰到目前
+        檔位的 ±滿幅時自動跳回 start 電壓，形成 sawtooth，硬體天生迴繞
+        不會有補值造成的空隙）；同一個 module 兩個 channel 都選 Ramp 時，
+        算出來的週期長度必須完全相同（硬體限制，跟 RF 的 IFFT 雙 channel
+        一樣）。RF 通道（z3）各自輸入頻率+振幅（V，peak）——全部填完才能
+        按 Run，一次寫入並開始播放；Stop 把全部 8 個 channel 歸零。電壓
+        是照該 channel 目前的量程檔位（見下表 range 欄）換算，用的是
+        標稱滿幅（±1.25V/±5V），<strong>如果實際量到的電壓跟輸入值有
+        落差，要去 AWG Scale/Calib 分頁調整該 channel 的 Mult/Add
+        校準係數，不是這裡的問題</strong>。
+      </p>
+      <div class="small text-secondary mb-2" id="test1-armed-status">Currently armed: (not queried yet)</div>
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered align-middle mb-2" style="max-width:560px">
+          <thead><tr><th>channel</th><th>kind</th><th>range</th><th>value</th></tr></thead>
+          <tbody>
+            <tr><td>0 (z0 ch1)</td><td>DC</td><td id="test1-range-0">-</td><td>
+              <div class="d-flex align-items-center gap-1 flex-wrap">
+                <select class="form-select form-select-sm w-auto d-inline-block" id="test1-dc-m0-c0-mode" onchange="toggleTest1DcMode(0,0)">
+                  <option value="fixed" selected>Fixed</option>
+                  <option value="ramp">Ramp</option>
+                </select>
+                <span id="test1-dc-m0-c0-fixed-fields">
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-dc-m0-c0" style="width:100px"> V
+                </span>
+                <span id="test1-dc-m0-c0-ramp-fields" style="display:none">
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-dc-m0-c0-ramp-start" style="width:90px" placeholder="start V"> V
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-dc-m0-c0-ramp-slope" style="width:90px" placeholder="slope"> V/s
+                </span>
+              </div>
+            </td></tr>
+            <tr><td>1 (z0 ch2)</td><td>DC</td><td id="test1-range-1">-</td><td>
+              <div class="d-flex align-items-center gap-1 flex-wrap">
+                <select class="form-select form-select-sm w-auto d-inline-block" id="test1-dc-m0-c1-mode" onchange="toggleTest1DcMode(0,1)">
+                  <option value="fixed" selected>Fixed</option>
+                  <option value="ramp">Ramp</option>
+                </select>
+                <span id="test1-dc-m0-c1-fixed-fields">
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-dc-m0-c1" style="width:100px"> V
+                </span>
+                <span id="test1-dc-m0-c1-ramp-fields" style="display:none">
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-dc-m0-c1-ramp-start" style="width:90px" placeholder="start V"> V
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-dc-m0-c1-ramp-slope" style="width:90px" placeholder="slope"> V/s
+                </span>
+              </div>
+            </td></tr>
+            <tr><td>2 (z1 ch1)</td><td>DC</td><td id="test1-range-2">-</td><td>
+              <div class="d-flex align-items-center gap-1 flex-wrap">
+                <select class="form-select form-select-sm w-auto d-inline-block" id="test1-dc-m1-c0-mode" onchange="toggleTest1DcMode(1,0)">
+                  <option value="fixed" selected>Fixed</option>
+                  <option value="ramp">Ramp</option>
+                </select>
+                <span id="test1-dc-m1-c0-fixed-fields">
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-dc-m1-c0" style="width:100px"> V
+                </span>
+                <span id="test1-dc-m1-c0-ramp-fields" style="display:none">
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-dc-m1-c0-ramp-start" style="width:90px" placeholder="start V"> V
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-dc-m1-c0-ramp-slope" style="width:90px" placeholder="slope"> V/s
+                </span>
+              </div>
+            </td></tr>
+            <tr><td>3 (z1 ch2)</td><td>DC</td><td id="test1-range-3">-</td><td>
+              <div class="d-flex align-items-center gap-1 flex-wrap">
+                <select class="form-select form-select-sm w-auto d-inline-block" id="test1-dc-m1-c1-mode" onchange="toggleTest1DcMode(1,1)">
+                  <option value="fixed" selected>Fixed</option>
+                  <option value="ramp">Ramp</option>
+                </select>
+                <span id="test1-dc-m1-c1-fixed-fields">
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-dc-m1-c1" style="width:100px"> V
+                </span>
+                <span id="test1-dc-m1-c1-ramp-fields" style="display:none">
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-dc-m1-c1-ramp-start" style="width:90px" placeholder="start V"> V
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-dc-m1-c1-ramp-slope" style="width:90px" placeholder="slope"> V/s
+                </span>
+              </div>
+            </td></tr>
+            <tr><td>4 (z2 ch1)</td><td>DC</td><td id="test1-range-4">-</td><td>
+              <div class="d-flex align-items-center gap-1 flex-wrap">
+                <select class="form-select form-select-sm w-auto d-inline-block" id="test1-dc-m2-c0-mode" onchange="toggleTest1DcMode(2,0)">
+                  <option value="fixed" selected>Fixed</option>
+                  <option value="ramp">Ramp</option>
+                </select>
+                <span id="test1-dc-m2-c0-fixed-fields">
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-dc-m2-c0" style="width:100px"> V
+                </span>
+                <span id="test1-dc-m2-c0-ramp-fields" style="display:none">
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-dc-m2-c0-ramp-start" style="width:90px" placeholder="start V"> V
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-dc-m2-c0-ramp-slope" style="width:90px" placeholder="slope"> V/s
+                </span>
+              </div>
+            </td></tr>
+            <tr><td>5 (z2 ch2)</td><td>DC</td><td id="test1-range-5">-</td><td>
+              <div class="d-flex align-items-center gap-1 flex-wrap">
+                <select class="form-select form-select-sm w-auto d-inline-block" id="test1-dc-m2-c1-mode" onchange="toggleTest1DcMode(2,1)">
+                  <option value="fixed" selected>Fixed</option>
+                  <option value="ramp">Ramp</option>
+                </select>
+                <span id="test1-dc-m2-c1-fixed-fields">
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-dc-m2-c1" style="width:100px"> V
+                </span>
+                <span id="test1-dc-m2-c1-ramp-fields" style="display:none">
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-dc-m2-c1-ramp-start" style="width:90px" placeholder="start V"> V
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-dc-m2-c1-ramp-slope" style="width:90px" placeholder="slope"> V/s
+                </span>
+              </div>
+            </td></tr>
+            <tr><td>6 (z3 ch1)</td><td>RF</td><td id="test1-range-6">-</td><td>
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                <select class="form-select form-select-sm w-auto d-inline-block" id="test1-rf-c0-mode" onchange="toggleTest1RfMode(0)">
+                  <option value="single" selected>Single freq</option>
+                  <option value="ifft">IFFT comb</option>
+                </select>
+                <span id="test1-rf-c0-single-fields">
+                  <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" id="test1-rf-c0-freq" style="width:100px" placeholder="freq">
+                  <select class="form-select form-select-sm w-auto d-inline-block" id="test1-rf-c0-unit">
+                    <option value="1">Hz</option><option value="1000" selected>kHz</option><option value="1000000">MHz</option>
+                  </select>
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-rf-c0-amp" style="width:100px" placeholder="amp"> V<sub>pk</sub>
+                </span>
+                <span id="test1-rf-c0-ifft-fields" style="display:none">
+                  <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" id="test1-rf-c0-ifft-start" style="width:90px" placeholder="start Hz">
+                  ~
+                  <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" id="test1-rf-c0-ifft-end" style="width:90px" placeholder="end Hz">
+                  step
+                  <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" id="test1-rf-c0-ifft-step" style="width:80px" placeholder="step Hz">
+                  exclude
+                  <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" id="test1-rf-c0-ifft-exstart" style="width:90px" placeholder="ex-start Hz (optional)">
+                  ~
+                  <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" id="test1-rf-c0-ifft-exend" style="width:90px" placeholder="ex-end Hz (optional)">
+                </span>
+              </div>
+            </td></tr>
+            <tr><td>7 (z3 ch2)</td><td>RF</td><td id="test1-range-7">-</td><td>
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                <select class="form-select form-select-sm w-auto d-inline-block" id="test1-rf-c1-mode" onchange="toggleTest1RfMode(1)">
+                  <option value="single" selected>Single freq</option>
+                  <option value="ifft">IFFT comb</option>
+                </select>
+                <span id="test1-rf-c1-single-fields">
+                  <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" id="test1-rf-c1-freq" style="width:100px" placeholder="freq">
+                  <select class="form-select form-select-sm w-auto d-inline-block" id="test1-rf-c1-unit">
+                    <option value="1">Hz</option><option value="1000" selected>kHz</option><option value="1000000">MHz</option>
+                  </select>
+                  <input type="number" step="any" class="form-control form-control-sm d-inline-block" id="test1-rf-c1-amp" style="width:100px" placeholder="amp"> V<sub>pk</sub>
+                </span>
+                <span id="test1-rf-c1-ifft-fields" style="display:none">
+                  <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" id="test1-rf-c1-ifft-start" style="width:90px" placeholder="start Hz">
+                  ~
+                  <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" id="test1-rf-c1-ifft-end" style="width:90px" placeholder="end Hz">
+                  step
+                  <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" id="test1-rf-c1-ifft-step" style="width:80px" placeholder="step Hz">
+                  exclude
+                  <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" id="test1-rf-c1-ifft-exstart" style="width:90px" placeholder="ex-start Hz (optional)">
+                  ~
+                  <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" id="test1-rf-c1-ifft-exend" style="width:90px" placeholder="ex-end Hz (optional)">
+                </span>
+              </div>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="text-warning small" id="test1-rf-ifft-warning" style="display:none">
+        ⚠️ 因為硬體限制，兩個 RF channel 都用 IFFT 模式時，start/end/step 必須完全相同（buffer 長度只能有一個）——exclude 範圍不受此限制，可以各自不同。
+      </p>
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-primary btn-sm" id="test1-run-btn" onclick="runTest1()">Run</button>
+        <button type="button" class="btn btn-outline-danger btn-sm" id="test1-stop-btn" onclick="stopTest1()">Stop</button>
+      </div>
+      <div class="result-box mt-2" id="test1-result"></div>
+    </div>
+  </div>
+
+  <!-- test2/test3（N 組輪播，2026-08-20 新增）：內容由 JS buildRotationPanel()
+       動態產生（第一次開啟面板時才建，比照 IFFT Calibration 分頁的
+       lazy-build 慣例），不在這裡手寫 5/6 組幾乎重複的 HTML。 -->
+  <div class="card mb-4" id="test2-panel" style="display:none">
+    <div class="card-body" id="test2-panel-body"></div>
+  </div>
+  <div class="card mb-4" id="test3-panel" style="display:none">
+    <div class="card-body" id="test3-panel-body"></div>
+  </div>
+
+  <div class="d-flex align-items-center gap-2 mb-3 flex-wrap justify-content-end">
+    <button type="button" class="btn btn-outline-secondary btn-sm" id="init-btn" onclick="runInit()">Initialize System</button>
+    <button type="button" class="btn btn-outline-secondary btn-sm" id="refresh-btn" onclick="refreshStatus()">Refresh Status</button>
+    <button type="button" class="btn btn-outline-danger btn-sm" id="reset-zero-btn" onclick="resetSystemToZero()">Reset to Zero</button>
+    <span class="text-secondary small" id="timestamp">Not queried yet</span>
+  </div>
+  <div class="result-box mb-3" id="reset-zero-result"></div>
+
+  <div class="card mb-4" id="init-panel" style="display:none">
+    <div class="card-body">
+      <div id="init-summary"></div>
+      <ul class="list-group list-group-flush mt-3" id="init-phases"></ul>
+    </div>
+  </div>
+  </div>
+  </div>
+
+
+  <div id="tab-calibration" class="tab-panel" style="display:none">
+    <div id="calib-overview">
+      <div class="toolbar" id="calib-overview-toolbar"></div>
+      <p class="muted-text">
+        Live scale range and the currently-active Mult/Add coefficient pair, for every board and
+        channel at once. Click a board's "Edit" to change its settings (temporary Register writes
+        or permanent Flash saves).
+      </p>
+      <div class="table-responsive">
+        <table class="table table-bordered table-sm align-middle calib-overview-table">
+          <thead>
+            <tr>
+              <th>board</th>
+              <th></th>
+              <th>0 (z0 ch1)</th>
+              <th>1 (z0 ch2)</th>
+              <th>2 (z1 ch1)</th>
+              <th>3 (z1 ch2)</th>
+              <th>4 (z2 ch1)</th>
+              <th>5 (z2 ch2)</th>
+              <th>6 (z3 ch1)</th>
+              <th>7 (z3 ch2)</th>
+            </tr>
+          </thead>
+          <tbody id="calib-overview-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div id="calib-edit" style="display:none">
+      <div class="toolbar">
+        <button type="button" class="btn-secondary" onclick="switchCalibView('overview')">&larr; Back to overview</button>
+        <span class="timestamp" id="calib-edit-board-label"></span>
+      </div>
+      <div id="calib-sections"></div>
+    </div>
+  </div>
+
+  <div id="tab-diagnostics" class="tab-panel" style="display:none">
+    <div class="card calib-card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h2 class="h6 mb-0">Si5332 Output Channels</h2>
+        <span class="badge text-bg-secondary">100 MHz fixed</span>
+      </div>
+      <div class="card-body">
+      <p class="subtitle">Pick a Desired state and click "Set" to apply it — reapplied silently on every "Initialize System".</p>
+      <table class="table table-sm table-bordered align-middle si5332-outputs-table">
+        <thead><tr><th>Output</th><th>Current</th><th>Desired</th><th></th></tr></thead>
+        <tbody id="si5332-outputs-tbody">
+          <!-- Placeholder rows so the tab never looks blank/broken before the
+               first auto-fetch resolves — disabled toggle buttons/badge (not
+               just missing rows) plus an explicit "not detected yet" label,
+               same row shape as the real thing so nothing jumps once
+               renderSi5332Outputs() swaps in live data. -->
+          {% for ch in range(6) %}
+          <tr>
+            <td>OUT{{ ch }}</td>
+            <td><span class="badge text-bg-secondary">not detected yet</span></td>
+            <td>
+              <span class="btn-group btn-group-sm" role="group">
+                <button type="button" class="btn btn-outline-primary" disabled>ON</button>
+                <button type="button" class="btn btn-outline-primary" disabled>OFF</button>
+              </span>
+            </td>
+            <td><button type="button" class="btn btn-primary btn-sm" disabled>Set</button></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="result-box" id="si5332-outputs-result"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-ifftcal" class="tab-panel" style="display:none">
+    <div class="card calib-card">
+      <div class="card-header">
+        <h2 class="h6 mb-0">IFFT Gain Correction Tables</h2>
+      </div>
+      <div class="card-body">
+      <p class="subtitle">
+        校正表補償放大器對不同頻率的增益差異（一行一個係數，0.0~1.0，
+        相對增益最弱那個頻率的衰減比例——增益最弱的頻率係數=1.0，其餘
+        <1.0，只衰減不放大）。上傳跟啟用是兩個獨立步驟，上傳完要按
+        Activate 才會套用到之後的 IFFT 播放。
+      </p>
+      <div class="mb-3 d-flex gap-2 align-items-center flex-wrap">
+        <input type="text" class="form-control form-control-sm w-auto" id="ifftcal-upload-name" placeholder="table name (e.g. amp_v1.csv)">
+        <input type="file" class="form-control form-control-sm w-auto" id="ifftcal-upload-file" accept=".csv,.txt">
+        <button type="button" class="btn btn-primary btn-sm" onclick="uploadIfftGainCorrection()">Upload</button>
+      </div>
+      <table class="table table-sm table-bordered align-middle">
+        <thead><tr><th>Name</th><th>Active</th><th></th></tr></thead>
+        <tbody id="ifftcal-tables-tbody">
+          <tr><td colspan="3" class="muted-text">Loading…</td></tr>
+        </tbody>
+      </table>
+      <div class="result-box" id="ifftcal-result"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+function setGlobalBusyLock(locked) {
+  document.querySelectorAll('button, input, select').forEach(el => {
+    if (locked) {
+      if (!el.disabled) el.dataset.lockedByResetZero = '1';
+      el.disabled = true;
+    } else if (el.dataset.lockedByResetZero) {
+      el.disabled = false;
+      delete el.dataset.lockedByResetZero;
+    }
+  });
+}
+// 2026-08-20 新增：使用者反饋「不同電腦的瀏覽器看不到一樣的內容」——
+// test1 上膛的結果原本只活在觸發那次 request 的回應/result-box 訊息裡，
+// 沒有反映在任何持久、跨瀏覽器共用的畫面上。改成讀 armed_ddr（後端
+// api_board_arm_test1()/test1_stop() 已經同步寫進 _status_cache，見
+// app.py 對應段落）畫出一段簡短摘要，board 0 的 armed_ddr 一更新（包含
+// 別的瀏覽器觸發的）就會透過既有的 status/arm SSE 事件流過來，這裡只
+// 是單純畫出目前值，不用自己另外輪詢。
+function renderTest1ArmedStatus() {
+  const box = document.getElementById('test1-armed-status');
+  const armedDdr = lastStatus && lastStatus[0] && lastStatus[0].armed_ddr;
+  if (!armedDdr) { box.textContent = 'Currently armed: (not queried yet)'; return; }
+  const chLabel = (m, sub) => {
+    const entry = armedDdr[String(m)];
+    return entry && entry.labels && entry.labels[sub] !== undefined ? entry.labels[sub] : '(unknown)';
+  };
+  const lines = [];
+  for (let m = 0; m < 3; m++) {
+    lines.push(`ch${m * 2}: ${chLabel(m, 0)}`, `ch${m * 2 + 1}: ${chLabel(m, 1)}`);
+  }
+  lines.push(`ch6: ${chLabel(3, 0)}`, `ch7: ${chLabel(3, 1)}`);
+  box.innerHTML = '<strong>Currently armed:</strong> ' + lines.join(' &nbsp;|&nbsp; ');
+}
+
+// test1/test2/test3/init-panel 是同一個 #tab-control 底下互相獨立的
+// sibling，不是像 Control/AWG Scale/Ext Clock 那樣用 switchTab() 管理的
+// 互斥分頁。開啟其中一個時把其餘全部隱藏——原本只有「開 test1 順便藏
+// init-panel」這一條（2026-08-20 使用者反饋），新增 test2/test3 之後
+// 三個面板彼此也要互斥：它們共用同一組硬體 module（0-3），畫面上同時
+// 開兩個容易誤以為兩邊都在運作，且 test2/test3 的 group_trig_scheduler
+// 每片板子只有一個實例，同時操作兩個面板沒有意義（見 board_ctrl.py
+// 「test2/test3 面板」章節）。
+function hideOtherTestPanels(exceptId) {
+  ['test1-panel', 'test2-panel', 'test3-panel', 'init-panel'].forEach(id => {
+    if (id !== exceptId) {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    }
+  });
+}
+
+function toggleTest1Panel() {
+  const panel = document.getElementById('test1-panel');
+  const opening = (panel.style.display === 'none');
+  if (opening) hideOtherTestPanels('test1-panel');
+  panel.style.display = opening ? 'block' : 'none';
+  if (opening) {
+    refreshTest1Ranges();
+    renderTest1ArmedStatus();
+  }
+}
+
+// ── test2/test3：N 組輪播面板（2026-08-20 新增）──────────────────────
+// test2=5 組、test3=6 組，同一套 UI 邏輯只是 N 不同，全部參數化成
+// testId('test2'/'test3')。面板內容是 JS 動態產生（buildRotationPanel()，
+// 第一次開啟時才建，之後只是顯示/隱藏），不是手寫的靜態 HTML——5/6 組
+// 幾乎重複的欄位手寫成本太高、容易漏改。
+//
+// switch 勾選框是「兩個 module 一組」層級（(z0,z1)/(z2,z3)，2026-08-21
+// 使用者要求改成二二一組：兩組各自的開關 + 一顆全選捷徑鍵）：勾選＝跟著
+// 輪播切換（每組可各自填不同值）；取消勾選＝只有 Set 1 可編輯，Set 2..N
+// 停用（disabled）並
+// 在切換當下複製一次 Set 1 目前的值方便閱讀，但**實際送出的資料一律
+// 直接讀 Set 1**（見 runRotation() 的 switching 判斷），不依賴這個複製
+// 是否還是最新——就算使用者取消勾選之後又回頭改了 Set 1 的值，送出時
+// 也會拿到正確的最新值，不會有「畫面看起來鎖定但其實還在讀舊複製值」
+// 這種不一致。
+const ROTATION_TESTS = { test2: 5, test3: 6 };
+// interval_cycles 是 32-bit @ 100MHz，硬性上限 ≈42.9497 秒/組——見
+// board_ctrl.ROTATION_MAX_INTERVAL_SEC，這裡只是前端先擋一次，後端
+// _api_arm_rotation() 是最後一道防線。
+const ROTATION_MAX_INTERVAL_SEC = 42.9497;
+const rotationBuilt = {};
+
+function rotationChannelCellsHtml(testId, ch, n) {
+  const isRf = ch >= 6;
+  let cells = '';
+  for (let s = 0; s < n; s++) {
+    if (!isRf) {
+      cells += `<td><input type="number" step="any" class="form-control form-control-sm" style="width:90px" id="${testId}-dc-c${ch}-s${s}"></td>`;
+      continue;
+    }
+    const rfIdx = ch - 6;
+    cells += `<td>
+      <div class="d-flex align-items-center gap-1 flex-wrap" style="min-width:260px">
+        <select class="form-select form-select-sm w-auto d-inline-block" id="${testId}-rf-c${rfIdx}-s${s}-mode" onchange="toggleRotationRfMode('${testId}',${rfIdx},${s})">
+          <option value="single" selected>Single</option>
+          <option value="ifft">IFFT</option>
+        </select>
+        <span id="${testId}-rf-c${rfIdx}-s${s}-single-fields">
+          <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" style="width:80px" id="${testId}-rf-c${rfIdx}-s${s}-freq" placeholder="freq">
+          <select class="form-select form-select-sm w-auto d-inline-block" id="${testId}-rf-c${rfIdx}-s${s}-unit">
+            <option value="1">Hz</option><option value="1000" selected>kHz</option><option value="1000000">MHz</option>
+          </select>
+          <input type="number" step="any" class="form-control form-control-sm d-inline-block" style="width:80px" id="${testId}-rf-c${rfIdx}-s${s}-amp" placeholder="amp Vpk">
+        </span>
+        <span id="${testId}-rf-c${rfIdx}-s${s}-ifft-fields" style="display:none">
+          <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" style="width:75px" id="${testId}-rf-c${rfIdx}-s${s}-ifft-start" placeholder="start Hz">
+          ~
+          <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" style="width:75px" id="${testId}-rf-c${rfIdx}-s${s}-ifft-end" placeholder="end Hz">
+          step
+          <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" style="width:70px" id="${testId}-rf-c${rfIdx}-s${s}-ifft-step" placeholder="step Hz">
+          <br>
+          exclude
+          <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" style="width:75px" id="${testId}-rf-c${rfIdx}-s${s}-ifft-exstart" placeholder="ex-start (optional)">
+          ~
+          <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" style="width:75px" id="${testId}-rf-c${rfIdx}-s${s}-ifft-exend" placeholder="ex-end (optional)">
+        </span>
+      </div>
+    </td>`;
+  }
+  return cells;
+}
+
+function buildRotationPanel(testId) {
+  const n = ROTATION_TESTS[testId];
+  const body = document.getElementById(`${testId}-panel-body`);
+  const labels = ['0 (z0 ch1)', '1 (z0 ch2)', '2 (z1 ch1)', '3 (z1 ch2)', '4 (z2 ch1)', '5 (z2 ch2)', '6 (z3 ch1)', '7 (z3 ch2)'];
+  const kinds = ['DC', 'DC', 'DC', 'DC', 'DC', 'DC', 'RF', 'RF'];
+  let headCells = '';
+  for (let s = 0; s < n; s++) headCells += `<th>Set ${s + 1}</th>`;
+  // switch 勾選框是「兩個 module 一組」層級（g0=z0+z1、g1=z2+z3），不是
+  // 每個 module 各自獨立——2026-08-21 使用者要求把原本的 4 個 module 級
+  // 開關進一步合併成二二一組（(z0,z1) 一組、(z2,z3) 一組，g1 因此是
+  // z2 的 DC + z3 的 RF 混在一起跟著同一顆開關），用 rowspan="4" 橫跨
+  // 該組的 4 個 physical channel 列。
+  let rows = '';
+  for (let m = 0; m < 4; m++) {
+    for (let sub = 0; sub < 2; sub++) {
+      const ch = m * 2 + sub;
+      const g = m < 2 ? 0 : 1;
+      const switchCell = ch % 4 === 0
+        ? `<td rowspan="4"><input type="checkbox" class="form-check-input" id="${testId}-switch-g${g}" checked onchange="toggleRotationSwitch('${testId}',${g})" title="z${g * 2}+z${g * 2 + 1}（channel ${g * 4}-${g * 4 + 3}）一起跟著輪播切換；取消勾選則只有 Set 1 可編輯，其餘鎖定沿用 Set 1"></td>`
+        : '';
+      rows += `<tr>
+        <td>${labels[ch]}</td><td>${kinds[ch]}</td><td id="${testId}-range-${ch}">-</td>
+        ${switchCell}
+        ${rotationChannelCellsHtml(testId, ch, n)}
+      </tr>`;
+    }
+  }
+  // 每組時長要能選 µs/ms/s（2026-08-20 使用者反饋：實際需求是 µs/ms
+  // 等級，只給秒數輸入太粗），跟 RF 頻率欄位的 unit select 同一種寫法
+  // ——value 存的是「乘上這個係數換算成秒」的倍率，收集時 value*unit。
+  let durCells = '';
+  for (let s = 0; s < n; s++) {
+    durCells += `<td>
+      <input type="number" step="any" min="0" class="form-control form-control-sm d-inline-block" style="width:70px" id="${testId}-dur-s${s}" placeholder="time">
+      <select class="form-select form-select-sm w-auto d-inline-block" id="${testId}-dur-s${s}-unit">
+        <option value="0.000001">&micro;s</option>
+        <option value="0.001" selected>ms</option>
+        <option value="1">s</option>
+      </select>
+    </td>`;
+  }
+  body.innerHTML = `
+    <div class="card-section-label">${testId} — ${n} 組輪播 (board 0)</div>
+    <p class="muted-text">
+      跟 test1 一樣的 6x DC + 2x RF 設定，多了 ${n} 組輪播：(z0,z1)/(z2,z3) 兩組（每組
+      2 個 module、4 個 channel 綁在一起，同一顆開關）可勾選「跟著輪播切換」（每組各自
+      填值）或取消勾選（只有 Set 1 可編輯，其餘鎖定沿用 Set 1），表頭另有一顆全選捷徑鍵
+      同步兩組。每組播放秒數
+      上限 <strong>${ROTATION_MAX_INTERVAL_SEC.toFixed(4)} 秒</strong>
+      （硬體 interval_cycles 是 32-bit @ 100MHz 的硬性上限）。第一輪開始播放前會有一段
+      開場靜音空檔，長度等於「最後一組（Set ${n}）」設定的秒數——這是排程機制本身的固有
+      行為（第一格倒數必須先跑完才會觸發第一次），之後每一輪循環的時序都正常，不需要
+      額外處理。
+    </p>
+    <div class="small text-secondary mb-2" id="${testId}-armed-status">Currently armed: (not queried yet)</div>
+    <div class="table-responsive">
+      <table class="table table-sm table-bordered align-middle mb-2">
+        <thead><tr><th>channel</th><th>kind</th><th>range</th><th>switch <input type="checkbox" class="form-check-input align-middle" id="${testId}-switch-all" checked onchange="toggleRotationSwitchAll('${testId}')" title="全選/全不選：同步套用到 (z0,z1) 跟 (z2,z3) 兩組"></th>${headCells}</tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr><td colspan="4">duration</td>${durCells}</tr></tfoot>
+      </table>
+    </div>
+    <p class="text-warning small" id="${testId}-rf-ifft-warning" style="display:none">
+      ⚠️ 因為硬體限制，同一組內兩個 RF channel 都用 IFFT 模式時，start/end/step 必須完全相同（buffer 長度只能有一個）——exclude 範圍不受此限制，可以各自不同。
+    </p>
+    <div class="d-flex gap-2">
+      <button type="button" class="btn btn-primary btn-sm" onclick="runRotation('${testId}')">Run</button>
+      <button type="button" class="btn btn-outline-danger btn-sm" onclick="stopRotation('${testId}')">Stop</button>
+    </div>
+    <div class="result-box mt-2" id="${testId}-result"></div>
+  `;
+}
+
+function toggleRotationPanel(testId) {
+  const panel = document.getElementById(`${testId}-panel`);
+  const opening = (panel.style.display === 'none');
+  if (opening) hideOtherTestPanels(`${testId}-panel`);
+  panel.style.display = opening ? 'block' : 'none';
+  if (opening) {
+    if (!rotationBuilt[testId]) { buildRotationPanel(testId); rotationBuilt[testId] = true; }
+    refreshRotationRanges(testId);
+    renderRotationArmedStatus(testId);
+  }
+}
+
+function refreshRotationRanges(testId) {
+  for (let ch = 0; ch <= 7; ch++) {
+    const el = document.getElementById(`${testId}-range-${ch}`);
+    if (el) el.textContent = '...';
+  }
+  fetch('/api/board/0/calib')
+    .then(r => r.json())
+    .then(data => {
+      for (let ch = 0; ch <= 7; ch++) {
+        const el = document.getElementById(`${testId}-range-${ch}`);
+        if (!el) continue;
+        if (!data.ok) { el.textContent = 'unknown'; continue; }
+        const fullScale = ((data.scale_cfg >> ch) & 1) ? 5 : 1.25;
+        el.textContent = `±${fullScale}V`;
+      }
+    })
+    .catch(() => {
+      for (let ch = 0; ch <= 7; ch++) {
+        const el = document.getElementById(`${testId}-range-${ch}`);
+        if (el) el.textContent = 'unknown';
+      }
+    });
+}
+
+// switch 是「兩個 module 一組」層級（見 buildRotationPanel() 說明）——
+// g=0 對應 (z0,z1)、g=1 對應 (z2,z3)，一組涵蓋 4 個 physical channel
+// （g*4 ~ g*4+3），這裡逐一呼叫下面的單一 channel 處理邏輯，並同步更新
+// 「全選」checkbox 的勾選/indeterminate 狀態方便閱讀兩組是否一致。
+function toggleRotationSwitch(testId, g) {
+  const enabled = document.getElementById(`${testId}-switch-g${g}`).checked;
+  for (let ch = g * 4; ch < g * 4 + 4; ch++) {
+    _toggleRotationSwitchOneChannel(testId, ch, enabled);
+  }
+  syncRotationSwitchAllUI(testId);
+}
+
+// 全選/全不選捷徑鍵——同步套用到兩組，比照使用者已熟悉的 Bulk Sine
+// Setup 全選慣例（一次點擊涵蓋所有 group，不用逐組點）。
+function toggleRotationSwitchAll(testId) {
+  const enabled = document.getElementById(`${testId}-switch-all`).checked;
+  for (let g = 0; g < 2; g++) {
+    document.getElementById(`${testId}-switch-g${g}`).checked = enabled;
+    for (let ch = g * 4; ch < g * 4 + 4; ch++) {
+      _toggleRotationSwitchOneChannel(testId, ch, enabled);
+    }
+  }
+}
+
+function syncRotationSwitchAllUI(testId) {
+  const g0 = document.getElementById(`${testId}-switch-g0`).checked;
+  const g1 = document.getElementById(`${testId}-switch-g1`).checked;
+  const allBox = document.getElementById(`${testId}-switch-all`);
+  allBox.checked = g0 && g1;
+  allBox.indeterminate = g0 !== g1;
+}
+
+function _toggleRotationSwitchOneChannel(testId, ch, enabled) {
+  const n = ROTATION_TESTS[testId];
+  const isRf = ch >= 6;
+  for (let s = 1; s < n; s++) {
+    if (!isRf) {
+      const el = document.getElementById(`${testId}-dc-c${ch}-s${s}`);
+      el.disabled = !enabled;
+      if (!enabled) el.value = document.getElementById(`${testId}-dc-c${ch}-s0`).value;
+      continue;
+    }
+    const rfIdx = ch - 6;
+    const suffixes = ['mode', 'freq', 'unit', 'amp', 'ifft-start', 'ifft-end', 'ifft-step', 'ifft-exstart', 'ifft-exend'];
+    if (!enabled) {
+      // 鎖定當下先複製一次 Set 1 目前的模式+欄位值，方便閱讀——但這只是
+      // 顯示用，實際送出的資料一律直接讀 Set 1（見 runRotation()）。
+      document.getElementById(`${testId}-rf-c${rfIdx}-s${s}-mode`).value =
+        document.getElementById(`${testId}-rf-c${rfIdx}-s0-mode`).value;
+      toggleRotationRfMode(testId, rfIdx, s);
+      suffixes.slice(1).forEach(suffix => {
+        const src = document.getElementById(`${testId}-rf-c${rfIdx}-s0-${suffix}`);
+        const dst = document.getElementById(`${testId}-rf-c${rfIdx}-s${s}-${suffix}`);
+        if (src && dst) dst.value = src.value;
+      });
+    }
+    suffixes.forEach(suffix => {
+      const el = document.getElementById(`${testId}-rf-c${rfIdx}-s${s}-${suffix}`);
+      if (el) el.disabled = !enabled;
+    });
+  }
+}
+
+function toggleRotationRfMode(testId, rfIdx, s) {
+  const mode = document.getElementById(`${testId}-rf-c${rfIdx}-s${s}-mode`).value;
+  document.getElementById(`${testId}-rf-c${rfIdx}-s${s}-single-fields`).style.display = mode === 'single' ? '' : 'none';
+  document.getElementById(`${testId}-rf-c${rfIdx}-s${s}-ifft-fields`).style.display = mode === 'ifft' ? '' : 'none';
+  updateRotationIfftWarning(testId);
+}
+
+function updateRotationIfftWarning(testId) {
+  const n = ROTATION_TESTS[testId];
+  let both = false;
+  for (let s = 0; s < n; s++) {
+    const m0 = document.getElementById(`${testId}-rf-c0-s${s}-mode`).value;
+    const m1 = document.getElementById(`${testId}-rf-c1-s${s}-mode`).value;
+    if (m0 === 'ifft' && m1 === 'ifft') { both = true; break; }
+  }
+  document.getElementById(`${testId}-rf-ifft-warning`).style.display = both ? '' : 'none';
+}
+
+function collectRotationRfChannel(testId, rfIdx, s) {
+  const mode = document.getElementById(`${testId}-rf-c${rfIdx}-s${s}-mode`).value;
+  const chLabel = `RF channel ${rfIdx === 0 ? 6 : 7} set ${s + 1}`;
+  if (mode === 'single') {
+    const freq = document.getElementById(`${testId}-rf-c${rfIdx}-s${s}-freq`).value;
+    const unit = document.getElementById(`${testId}-rf-c${rfIdx}-s${s}-unit`).value;
+    const amp = document.getElementById(`${testId}-rf-c${rfIdx}-s${s}-amp`).value;
+    if (freq === '' || amp === '') {
+      return { spec: null, error: `${chLabel}: freq and amp must be filled in` };
+    }
+    return { spec: { mode: 'single', freq_hz: parseFloat(freq) * parseFloat(unit), amp_v: parseFloat(amp) }, error: null };
+  }
+  const start = document.getElementById(`${testId}-rf-c${rfIdx}-s${s}-ifft-start`).value;
+  const end = document.getElementById(`${testId}-rf-c${rfIdx}-s${s}-ifft-end`).value;
+  const step = document.getElementById(`${testId}-rf-c${rfIdx}-s${s}-ifft-step`).value;
+  if (start === '' || end === '' || step === '') {
+    return { spec: null, error: `${chLabel}: IFFT start/end/step must be filled in` };
+  }
+  const spec = { mode: 'ifft', start_hz: parseFloat(start), end_hz: parseFloat(end), step_hz: parseFloat(step) };
+  const exStart = document.getElementById(`${testId}-rf-c${rfIdx}-s${s}-ifft-exstart`).value;
+  const exEnd = document.getElementById(`${testId}-rf-c${rfIdx}-s${s}-ifft-exend`).value;
+  if ((exStart === '') !== (exEnd === '')) {
+    return { spec: null, error: `${chLabel}: exclude start/end 要嘛兩個都填，要嘛都留空` };
+  }
+  if (exStart !== '') {
+    spec.exclude_start_hz = parseFloat(exStart);
+    spec.exclude_end_hz = parseFloat(exEnd);
+  }
+  return { spec, error: null };
+}
+
+function renderRotationArmedStatus(testId) {
+  const box = document.getElementById(`${testId}-armed-status`);
+  if (!box) return;
+  const armedDdr = lastStatus && lastStatus[0] && lastStatus[0].armed_ddr;
+  if (!armedDdr) { box.textContent = 'Currently armed: (not queried yet)'; return; }
+  const n = ROTATION_TESTS[testId];
+  const parts = [];
+  for (let m = 0; m < 4; m++) {
+    const entry = armedDdr[String(m)];
+    if (!entry) { parts.push(`z${m}: (unknown)`); continue; }
+    // armed_ddr 不區分是哪個面板寫的——n_slots 跟這個面板的組數不一致，
+    // 代表這個 module 目前其實是被 test1（2 slot）或另一個輪播面板
+    // （不同 N）armed，不是這次 Run 的結果，明確標示出來避免誤判。
+    parts.push(entry.n_slots === n
+      ? `z${m}: ${n} sets armed (this rotation)`
+      : `z${m}: armed by a different mode (${entry.n_slots} slots)`);
+  }
+  box.innerHTML = '<strong>Currently armed:</strong> ' + parts.join(' &nbsp;|&nbsp; ');
+}
+
+function runRotation(testId) {
+  const n = ROTATION_TESTS[testId];
+  const box = document.getElementById(`${testId}-result`);
+  const errors = [];
+
+  const durations = [];
+  for (let s = 0; s < n; s++) {
+    const v = document.getElementById(`${testId}-dur-s${s}`).value;
+    const unit = document.getElementById(`${testId}-dur-s${s}-unit`).value;
+    if (v === '') { errors.push(`Set ${s + 1} duration must be filled in`); continue; }
+    const d = parseFloat(v) * parseFloat(unit);
+    if (!(d > 0) || d > ROTATION_MAX_INTERVAL_SEC) {
+      errors.push(`Set ${s + 1} duration ${d}s must be > 0 and <= ${ROTATION_MAX_INTERVAL_SEC.toFixed(4)}s`);
+    }
+    durations.push(d);
+  }
+
+  // switch 是「兩個 module 一組」層級（見 buildRotationPanel()/
+  // toggleRotationSwitch() 說明）——module 0,1 讀 group0（`-switch-g0`），
+  // module 2 跟 RF module 3 都讀 group1（`-switch-g1`，同一顆開關）。
+  const dc = {};
+  for (let m = 0; m < 3; m++) {
+    const g = m < 2 ? 0 : 1;
+    const switching = document.getElementById(`${testId}-switch-g${g}`).checked;
+    const sets = [];
+    for (let s = 0; s < n; s++) {
+      const v0raw = document.getElementById(`${testId}-dc-c${m * 2}-s${switching ? s : 0}`).value;
+      const v1raw = document.getElementById(`${testId}-dc-c${m * 2 + 1}-s${switching ? s : 0}`).value;
+      if (v0raw === '' || v1raw === '') { errors.push(`z${m} set ${s + 1}: DC fields must be filled in`); continue; }
+      sets.push([parseFloat(v0raw), parseFloat(v1raw)]);
+    }
+    dc[m] = sets;
+  }
+
+  const switchingRf = document.getElementById(`${testId}-switch-g1`).checked;
+  const rfSets = [];
+  for (let s = 0; s < n; s++) {
+    const { spec: ch1, error: err1 } = collectRotationRfChannel(testId, 0, switchingRf ? s : 0);
+    const { spec: ch2, error: err2 } = collectRotationRfChannel(testId, 1, switchingRf ? s : 0);
+    if (err1) errors.push(err1);
+    if (err2) errors.push(err2);
+    if (err1 || err2) continue;
+    if (ch1.mode === 'ifft' && ch2.mode === 'ifft' &&
+        (ch1.start_hz !== ch2.start_hz || ch1.end_hz !== ch2.end_hz || ch1.step_hz !== ch2.step_hz)) {
+      errors.push(`set ${s + 1}: 兩個 RF channel 都選 IFFT 時 start/end/step 必須完全相同`);
+      continue;
+    }
+    rfSets.push({ ch1, ch2 });
+  }
+  const rf = { 3: rfSets };
+
+  if (errors.length) {
+    box.innerHTML = `<p class="error">${errors.join('; ')}</p>`;
+    return;
+  }
+
+  box.innerHTML = '<p class="muted-text">Writing + starting rotation...</p>';
+  fetch(`/api/board/0/arm_${testId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dc, rf, durations_sec: durations }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      box.innerHTML = data.ok
+        ? `<p>Armed and rotation started — looping ${n} sets.</p>`
+        : `<p class="error">${data.error}</p>`;
+      if (data.ok && data.armed_ddr && lastStatus && lastStatus[0]) {
+        lastStatus[0].armed_ddr = data.armed_ddr;
+        renderRotationArmedStatus(testId);
+      }
+    })
+    .catch(e => { box.innerHTML = `<p class="error">${e}</p>`; });
+}
+
+function stopRotation(testId) {
+  const box = document.getElementById(`${testId}-result`);
+  box.innerHTML = '<p class="muted-text">Stopping...</p>';
+  fetch(`/api/board/0/${testId}_stop`, { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      box.innerHTML = data.ok
+        ? '<p>Stopped — rotation halted, all 8 channels 0V.</p>'
+        : `<p class="error">${data.error}</p>`;
+      if (data.ok && data.armed_ddr && lastStatus && lastStatus[0]) {
+        lastStatus[0].armed_ddr = data.armed_ddr;
+        renderRotationArmedStatus(testId);
+      }
+    })
+    .catch(e => { box.innerHTML = `<p class="error">${e}</p>`; });
+}
+
+// 每個 DC channel 目前的量程檔位（±1.25V/±5V）——電壓要換算成振幅比例
+// 才知道能不能寫、寫進去會是多少，這個檔位本身在 AWG Scale/Calib 分頁
+// 才能改，這裡只顯示，讓使用者填電壓前先知道範圍（2026-08-20，per
+// 使用者要求「這裡也要寫檔位」）。跟後端 channel_full_scale_v() 同一套
+// bit 判斷：scale_cfg bit=0 是 ±1.25V，bit=1 是 ±5V。
+function refreshTest1Ranges() {
+  for (let ch = 0; ch <= 7; ch++) {
+    document.getElementById(`test1-range-${ch}`).textContent = '...';
+  }
+  fetch('/api/board/0/calib')
+    .then(r => r.json())
+    .then(data => {
+      if (!data.ok) {
+        for (let ch = 0; ch <= 7; ch++) document.getElementById(`test1-range-${ch}`).textContent = 'unknown';
+        return;
+      }
+      for (let ch = 0; ch <= 7; ch++) {
+        const fullScale = ((data.scale_cfg >> ch) & 1) ? 5 : 1.25;
+        document.getElementById(`test1-range-${ch}`).textContent = `±${fullScale}V`;
+      }
+    })
+    .catch(() => {
+      for (let ch = 0; ch <= 7; ch++) document.getElementById(`test1-range-${ch}`).textContent = 'unknown';
+    });
+}
+
+// test1 面板（2026-08-20 新增）：6x DC（z0-z2，實際電壓）+ 2x RF（z3，
+// 各自獨立頻率）。電壓→振幅比例的換算/範圍檢查在後端做（要用該 channel
+// 當下的 scale_cfg，前端沒有這份資料）——這裡只負責「8 格全部填完才能
+// 送出」這個前端可以獨立判斷的檢查，其餘錯誤（例如超出電壓範圍）由
+// 後端 /api/board/<id>/arm_test1 擋下，顯示在 result box。
+// 2026-08-20 新增：RF channel（6/7）各自獨立選 Single freq / IFFT comb，
+// 切換時顯示/隱藏對應欄位；兩個都選 IFFT 時額外顯示硬體限制提示（見
+// board_ctrl.arm_test1_pattern() docstring：兩個 channel 都選 IFFT 時
+// start/end/step 必須完全相同，buffer 長度只能有一個）。
+// DC channel 的 Fixed/Ramp 模式切換（2026-08-21 新增，跟
+// toggleTest1RfMode() 同一種寫法）——m=module(0-2), c=physical channel
+// (0/1)。Ramp 模式：start V + slope V/s，碰到目前檔位的 ±滿幅時自動
+// 跳回 start V（見 board_ctrl._dc_ramp_cycle_length() 說明）。
+function toggleTest1DcMode(m, c) {
+  const mode = document.getElementById(`test1-dc-m${m}-c${c}-mode`).value;
+  document.getElementById(`test1-dc-m${m}-c${c}-fixed-fields`).style.display = mode === 'fixed' ? '' : 'none';
+  document.getElementById(`test1-dc-m${m}-c${c}-ramp-fields`).style.display = mode === 'ramp' ? '' : 'none';
+}
+
+// 讀某個 DC channel 目前選的模式+欄位，回傳 {spec, error}——spec 是要
+// 送給後端的格式（跟 app.py _parse_dc_channel() 對應），跟
+// collectTest1RfChannel() 同一種模式。
+function collectTest1DcChannel(m, c) {
+  const label = `DC channel ${m * 2 + c}`;
+  const mode = document.getElementById(`test1-dc-m${m}-c${c}-mode`).value;
+  if (mode === 'ramp') {
+    const start = document.getElementById(`test1-dc-m${m}-c${c}-ramp-start`).value;
+    const slope = document.getElementById(`test1-dc-m${m}-c${c}-ramp-slope`).value;
+    if (start === '' || slope === '') {
+      return { spec: null, error: `${label}: ramp start/slope must be filled in` };
+    }
+    return { spec: { mode: 'ramp', start_v: parseFloat(start), slope_v_per_s: parseFloat(slope) }, error: null };
+  }
+  const v = document.getElementById(`test1-dc-m${m}-c${c}`).value;
+  if (v === '') {
+    return { spec: null, error: `${label}: value must be filled in` };
+  }
+  return { spec: { mode: 'fixed', v: parseFloat(v) }, error: null };
+}
+
+function toggleTest1RfMode(idx) {
+  const mode = document.getElementById(`test1-rf-c${idx}-mode`).value;
+  document.getElementById(`test1-rf-c${idx}-single-fields`).style.display = mode === 'single' ? '' : 'none';
+  document.getElementById(`test1-rf-c${idx}-ifft-fields`).style.display = mode === 'ifft' ? '' : 'none';
+  const bothIfft = document.getElementById('test1-rf-c0-mode').value === 'ifft'
+                 && document.getElementById('test1-rf-c1-mode').value === 'ifft';
+  document.getElementById('test1-rf-ifft-warning').style.display = bothIfft ? '' : 'none';
+}
+
+// 讀某個 RF channel（idx=0 對應 channel 6/ch1，idx=1 對應 channel 7/ch2）
+// 目前選的模式+欄位，回傳 {spec, error}——spec 是要送給後端的格式（跟
+// app.py api_board_arm_test1() 的 _parse_rf_channel() 對應），error 非
+// null 時 spec 是 null，呼叫端負責顯示這個錯誤、不送出請求。
+function collectTest1RfChannel(idx) {
+  const mode = document.getElementById(`test1-rf-c${idx}-mode`).value;
+  if (mode === 'single') {
+    const freq = document.getElementById(`test1-rf-c${idx}-freq`).value;
+    const unit = document.getElementById(`test1-rf-c${idx}-unit`).value;
+    const amp = document.getElementById(`test1-rf-c${idx}-amp`).value;
+    if (freq === '' || amp === '') {
+      return { spec: null, error: `RF channel ${idx === 0 ? 6 : 7}: freq and amp must be filled in` };
+    }
+    return { spec: { mode: 'single', freq_hz: parseFloat(freq) * parseFloat(unit), amp_v: parseFloat(amp) }, error: null };
+  }
+  const start = document.getElementById(`test1-rf-c${idx}-ifft-start`).value;
+  const end = document.getElementById(`test1-rf-c${idx}-ifft-end`).value;
+  const step = document.getElementById(`test1-rf-c${idx}-ifft-step`).value;
+  if (start === '' || end === '' || step === '') {
+    return { spec: null, error: `RF channel ${idx === 0 ? 6 : 7}: IFFT start/end/step must be filled in` };
+  }
+  const spec = { mode: 'ifft', start_hz: parseFloat(start), end_hz: parseFloat(end), step_hz: parseFloat(step) };
+  const exStart = document.getElementById(`test1-rf-c${idx}-ifft-exstart`).value;
+  const exEnd = document.getElementById(`test1-rf-c${idx}-ifft-exend`).value;
+  if ((exStart === '') !== (exEnd === '')) {
+    return { spec: null, error: `RF channel ${idx === 0 ? 6 : 7}: exclude start/end 要嘛兩個都填，要嘛都留空` };
+  }
+  if (exStart !== '') {
+    spec.exclude_start_hz = parseFloat(exStart);
+    spec.exclude_end_hz = parseFloat(exEnd);
+  }
+  return { spec, error: null };
+}
+
+function runTest1() {
+  const box = document.getElementById('test1-result');
+  const dcErrors = [];
+  const dc = {};
+  for (let m = 0; m < 3; m++) {
+    const { spec: s0, error: e0 } = collectTest1DcChannel(m, 0);
+    const { spec: s1, error: e1 } = collectTest1DcChannel(m, 1);
+    if (e0) dcErrors.push(e0);
+    if (e1) dcErrors.push(e1);
+    if (!e0 && !e1) dc[m] = { ch1: s0, ch2: s1 };
+  }
+  if (dcErrors.length) {
+    box.innerHTML = `<p class="error">${dcErrors.join('; ')}</p>`;
+    return;
+  }
+  const { spec: ch1, error: err1 } = collectTest1RfChannel(0);
+  const { spec: ch2, error: err2 } = collectTest1RfChannel(1);
+  if (err1 || err2) {
+    box.innerHTML = `<p class="error">${[err1, err2].filter(Boolean).join('; ')}</p>`;
+    return;
+  }
+  if (ch1.mode === 'ifft' && ch2.mode === 'ifft' &&
+      (ch1.start_hz !== ch2.start_hz || ch1.end_hz !== ch2.end_hz || ch1.step_hz !== ch2.step_hz)) {
+    box.innerHTML = '<p class="error">兩個 RF channel 都選 IFFT 模式時，start/end/step 必須完全相同（硬體限制，buffer 長度只能有一個）</p>';
+    return;
+  }
+  const rf = { 3: { ch1, ch2 } };
+  box.innerHTML = '<p class="muted-text">Writing + triggering...</p>';
+  fetch('/api/board/0/arm_test1', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dc, rf }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      box.innerHTML = data.ok
+        ? '<p>Armed and triggered — playing now.</p>'
+        : `<p class="error">${data.error}</p>`;
+      // 不等 SSE 'arm' 事件回來才更新，這個瀏覽器自己觸發的立刻反映；
+      // 別的瀏覽器會透過 SSE 收到同一份 armed_ddr（見 handleEvent()）。
+      if (data.ok && data.armed_ddr && lastStatus && lastStatus[0]) {
+        lastStatus[0].armed_ddr = data.armed_ddr;
+        renderTest1ArmedStatus();
+      }
+    })
+    .catch(e => { box.innerHTML = `<p class="error">${e}</p>`; });
+}
+
+function stopTest1() {
+  const box = document.getElementById('test1-result');
+  box.innerHTML = '<p class="muted-text">Stopping...</p>';
+  fetch('/api/board/0/test1_stop', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      box.innerHTML = data.ok
+        ? '<p>Stopped — all 8 channels 0V.</p>'
+        : `<p class="error">${data.error}</p>`;
+      if (data.ok && data.armed_ddr && lastStatus && lastStatus[0]) {
+        lastStatus[0].armed_ddr = data.armed_ddr;
+        renderTest1ArmedStatus();
+      }
+    })
+    .catch(e => { box.innerHTML = `<p class="error">${e}</p>`; });
+}
+
+function resetSystemToZero() {
+  const ids = Object.keys(lastStatus).map(Number).sort((a, b) => a - b);
+  const box = document.getElementById('reset-zero-result');
+  if (ids.length === 0) {
+    box.innerHTML = '<p class="error">no boards known yet — Initialize System or Refresh Status first</p>';
+    return;
+  }
+  inlineConfirm('reset-zero-result',
+    `Reset ALL ${ids.length} board(s) × all 4 modules to a clean/silent state? This will ` +
+    `interrupt whatever is currently playing on every board: stops every module's Trigger ` +
+    `Timer (if any is armed/running), switches every module to Sine at 0Hz (write+trigger ` +
+    `×2), then to DDR with 2 empty slots (arm+trigger ×2), firing all 4 trigger groups each ` +
+    `time regardless of each module's actual trigger group assignment.`,
+    [document.getElementById('reset-zero-btn')],
+    () => runResetSystemToZero(ids));
+}
+
+async function runResetSystemToZero(ids) {
+  const box = document.getElementById('reset-zero-result');
+  const btn = document.getElementById('reset-zero-btn');
+  const ALL_GROUPS = 0xF;
+  setGlobalBusyLock(true);
+  try {
+    // Phase 0 (2026-08-06, per user feedback — a module with an already-
+    // running/looping Trigger Timer kept firing on its own schedule and
+    // interfered with the Sine/DDR silence being written below): stop every
+    // module's Trigger Timer FIRST, same packet the per-module Stop button
+    // used to send. No verification possible — trig_timer has no readback
+    // (see api_board_trig_timer_set()'s docstring) — but this does clear
+    // the persisted record (state_record.json) either way.
+    box.innerHTML = '<p class="muted-text">Stopping Trigger Timer on every module...</p>';
+    for (const destId of ids) {
+      for (let m = 0; m < 4; m++) {
+        try {
+          await fetch(`/api/board/${destId}/trig_timer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ port: m, intervals_sec: [], loop_en: false, run: false }),
+          });
+        } catch (e) { /* best-effort — one module failing to respond shouldn't abort the whole reset */ }
+      }
+    }
+
+    // Phase 1: Sine @ 0Hz, write+trigger twice. Unlike Phase 2's DDR
+    // play_pos below, this canNOT be verified by readback — sine_ctrl's
+    // tuning_word/phase are pure write-only registers (api_board_sine_ctrl_
+    // set()'s own docstring: "沒有對應的 QT_BOARD_INFO 欄位可以讀回確認"),
+    // there is no query that reports back a channel's active frequency or
+    // phase. So this stays a fixed, RTL-proven sequence (sine_ctrl_regs.v's
+    // write routing always targets whichever _a/_b instance is currently
+    // idle — 2 writes + 2 triggers is proven sufficient to flush BOTH
+    // instances to 0Hz/phase 0, confirmed earlier this session by reading
+    // that file) rather than a verify loop like Phase 2 — there is nothing
+    // to read back and check.
+    // dac_mode_ramp is a single 12-bit register covering all 4 modules'
+    // DDR/Sine mode (bits 0-3) + all 8 channels' ramp_en (bits 4-11) at
+    // once — this used to be computed by reading the (now-removed) Edit
+    // Settings radios/checkboxes back out of the DOM; since this phase's
+    // whole point is "force every module to Sine, no ramp", the target
+    // value is just the literal constant 0xF (bits 0-3 set, 4-11 clear).
+    const ALL_SINE_NO_RAMP = 0xF;
+    for (let pass = 1; pass <= 2; pass++) {
+      box.innerHTML = `<p class="muted-text">Sine 0Hz pass ${pass}/2: writing...</p>`;
+      for (const destId of ids) {
+        await fetch(`/api/board/${destId}/dac_mode_ramp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: ALL_SINE_NO_RAMP }),
+        });
+        for (let ch = 0; ch < 8; ch++) {
+          await fetch(`/api/board/${destId}/sine_slot`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ch_sel: ch, freqs_hz: [0], ramp_en: false, ramp: null }),
+          });
+        }
+      }
+      box.innerHTML = `<p class="muted-text">Sine 0Hz pass ${pass}/2: triggering all groups...</p>`;
+      await fetch('/api/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ group_select: ALL_GROUPS }),
+      });
+    }
+
+    // Phase 2: DDR, 2 empty (silent) slots — Arm+Trigger, then VERIFY via
+    // QT_DDR_STATUS's play_pos readback instead of trusting a fixed pass
+    // count (2026-08-04, per user feedback: "應該也是要讓pos回到0...而不是
+    // 統一執行trigger，因為有可能每一次trigger是不同次數" — unlike Sine's
+    // phase, which has NO readback at all (see comment on Phase 1 below),
+    // play_pos genuinely IS queryable via the existing "Read Playback
+    // Status" endpoint, so this can verify instead of assume).
+    //
+    // Each round re-Arms every module (arm_waveform_from_files() always
+    // toggles play_en 0->1 first, which forces the RTL's ST_IDLE state and
+    // resets play_pos to -1 for every module uniformly — see
+    // waveform_controller.v), THEN fires exactly one all-group trigger
+    // (play_pos: -1 -> 0). A round is NEVER "just fire another trigger on
+    // top" — with list_depth=2, a second trigger without re-arming would
+    // move an already-correct module's play_pos from 0 to 1 instead of
+    // leaving it alone, which is exactly the kind of per-module drift the
+    // user was worried about. Re-arming resets everyone to the same known
+    // starting point (-1) each round, so retrying is always safe regardless
+    // of how many modules already converged.
+    const silentSlot = [0];
+    const MAX_ROUNDS = 3;  // normally converges in round 1; this is just a retry budget
+    let allZero = false;
+    let lastBadOnes = [];
+    for (let round = 1; round <= MAX_ROUNDS && !allZero; round++) {
+      box.innerHTML = `<p class="muted-text">DDR silent round ${round}/${MAX_ROUNDS}: arming...</p>`;
+      for (const destId of ids) {
+        // Same "whole-register literal" reasoning as Phase 1 above — this
+        // phase forces every module to DDR, no ramp, so the target value is
+        // just 0x0.
+        await fetch(`/api/board/${destId}/dac_mode_ramp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: 0x0 }),
+        });
+        const channel_slot_values = {};
+        for (let m = 0; m < 4; m++) channel_slot_values[m] = [silentSlot, silentSlot];
+        await fetch(`/api/board/${destId}/arm`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channel_slot_values }),
+        });
+      }
+      box.innerHTML = `<p class="muted-text">DDR silent round ${round}/${MAX_ROUNDS}: triggering all groups...</p>`;
+      await fetch('/api/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ group_select: ALL_GROUPS }),
+      });
+
+      box.innerHTML = `<p class="muted-text">DDR silent round ${round}/${MAX_ROUNDS}: verifying play_pos...</p>`;
+      allZero = true;
+      lastBadOnes = [];
+      for (const destId of ids) {
+        const res = await fetch(`/api/board/${destId}/ddr_status`);
+        const data = await res.json();
+        if (!data.channels) { allZero = false; lastBadOnes.push(`board${destId} (read failed: ${data.error || 'no data'})`); continue; }
+        data.channels.forEach((c, m) => {
+          if (c.play_pos !== 0) { allZero = false; lastBadOnes.push(`board${destId}-z${m} (play_pos=${c.play_pos})`); }
+        });
+      }
+
+      // 2026-08-10（安全性補強，per 使用者：輸出是高壓，沒有真的歸零
+      // 有安全問題）：play_pos 只證明 DDR 播放位置在起點，不代表
+      // dac_output_mux 真的選了 DDR——這正是「Bug D」被發現的地方：
+      // dac_mode_ramp 本身完全沒有讀回驗證過。用 /api/status/refresh
+      // 強制重新查詢硬體（不是讀 lastStatus 那種被動快取，寫入當下
+      // 才更新、不會因為 trigger 就自動刷新），確認每片板子的
+      // dac_mode_ramp 真的變成 0（4 個 module 全部 DDR）。
+      box.innerHTML = `<p class="muted-text">DDR silent round ${round}/${MAX_ROUNDS}: verifying dac_mode_ramp...</p>`;
+      try {
+        const refreshRes = await fetch('/api/status/refresh', { method: 'POST' });
+        const freshStatus = await refreshRes.json();
+        for (const destId of ids) {
+          const info = freshStatus[destId];
+          const modeRamp = info ? info.dac_mode_ramp : undefined;
+          if (modeRamp !== 0) {
+            allZero = false;
+            lastBadOnes.push(`board${destId} dac_mode_ramp=${modeRamp !== undefined ? '0x' + modeRamp.toString(16).padStart(3, '0') : 'unknown'}`);
+          }
+        }
+      } catch (e) {
+        allZero = false;
+        lastBadOnes.push(`status/refresh failed: ${e}`);
+      }
+    }
+
+    if (allZero) {
+      box.innerHTML = '<p>Reset to zero complete — every board/module is DDR with 2 silent slots, play_pos AND dac_mode_ramp verified 0 on every module.</p>';
+    } else {
+      box.innerHTML = `<p class="error"><strong>⚠️ SAFETY WARNING — reset to zero NOT verified after ${MAX_ROUNDS} rounds, output may still be at a non-zero voltage: ${lastBadOnes.join(', ')}.</strong> Physically verify output before leaving the boards unattended. Sine's phase (Phase 1 above) still has no readback at all for its own parameters, only mode/ramp_en are checked here — see the code comment on Phase 1.</p>`;
+    }
+  } catch (e) {
+    box.innerHTML = `<p class="error">${e}</p>`;
+  } finally {
+    setGlobalBusyLock(false);
+    btn.disabled = false;
+  }
+}
+
+let lastStatus = {};
+
+// Master board connectivity lock (2026-08-13, per user feedback after
+// web/app.py's startup crash-loop fix — the server now stays up with no
+// board attached, status[0] just carries {error: ...} (see connect()/
+// refresh_all_status() in app.py), but before this the UI let you click
+// any button anyway and it'd silently 500. Scoped to #tab-control/
+// #tab-calibration only (both go through the master's USB via _fp) —
+// #tab-diagnostics (Si5332) is a separate USB device, unaffected by master
+// connectivity, and intentionally left alone. Uses a CSS class instead of
+// the native `disabled` attribute so a click still reaches the capture-phase
+// listener below and can explain why, instead of doing nothing.
+const HW_LOCK_ALWAYS_ALLOW_IDS = new Set(['init-btn', 'refresh-btn']);
+const HW_LOCK_ALLOW_ONCLICK_PREFIX = /^switchCalibView\(/;
+
+function isHwLockExempt(btn) {
+  return HW_LOCK_ALWAYS_ALLOW_IDS.has(btn.id) ||
+    HW_LOCK_ALLOW_ONCLICK_PREFIX.test(btn.getAttribute('onclick') || '');
+}
+
+function updateConnectionLockUI(masterConnected) {
+  document.getElementById('connection-banner').classList.toggle('d-none', masterConnected);
+  document.querySelectorAll('#tab-control button, #tab-calibration button').forEach(btn => {
+    btn.classList.toggle('hw-locked', !masterConnected && !isHwLockExempt(btn));
+  });
+}
+
+// Capture phase so this runs before the button's own inline onclick handler.
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('button.hw-locked');
+  if (!btn) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  alert('Master board not connected — click "Initialize System" first.');
+}, true);
+
+// 2026-08-20：Control 分頁的 Overview/Edit Settings/Bulk/IFFT 全部拿掉後
+// （見 PROJECT.md「Web UI 大幅簡化」），render() 不再需要建立/同步那些
+// DOM——現在只剩 Initialize System/Refresh Status/Reset to Zero 用得到的
+// 部分：連線鎖定狀態、時間戳，以及 AWG Scale/Calib 分頁（buildCalibTab()
+// 用同一份 status 資料建表）。
+function render(status) {
+  lastStatus = status;
+  updateConnectionLockUI(!(status[0] && status[0].error));
+  const ids = Object.keys(status).map(Number).sort((a, b) => a - b);
+  document.getElementById('timestamp').textContent =
+    'Last updated: ' + new Date().toLocaleTimeString('en-US', { hour12: false });
+  buildCalibTab(ids);  // no-op after the first call — see calibBuilt flag
+  renderTest1ArmedStatus();
+  Object.keys(ROTATION_TESTS).forEach(t => { if (rotationBuilt[t]) renderRotationArmedStatus(t); });
+}
+
+async function loadStatus() {
+  const res = await fetch('/api/status');
+  render(await res.json());
+}
+
+// 2026-08-10：遠端要連線時得先知道這台 server 的 IP，這台 Pi 有線+無線
+// 兩張網卡、IP 不只一個，全部列出來讓使用者自己判斷要用哪個。
+// 2026-08-18：開機時 autostart 的 Chromium 可能在 DHCP 還沒發完 IP
+// 前就把頁面畫出來，這裡原本只 fetch 一次，撞到這個 race 就會永遠卡在
+// unavailable。改成拿不到 IP 時每 2 秒重試，最多 15 次（30 秒）。
+async function loadServerInfo() {
+  const el = document.getElementById('server-info');
+  for (let attempt = 0; attempt < 15; attempt++) {
+    try {
+      const res = await fetch('/api/server_info');
+      const data = await res.json();
+      if (data.ips && data.ips.length) {
+        el.textContent = `Server IP: ${data.ips.map(ip => `${ip}:${data.port}`).join('  /  ')}`;
+        return;
+      }
+    } catch (e) {
+      // network not up yet — fall through to retry
+    }
+    el.textContent = 'Server IP: waiting for network...';
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  el.textContent = 'Server IP: unavailable';
+}
+
+async function refreshStatus() {
+  const btn = document.getElementById('refresh-btn');
+  btn.disabled = true;
+  btn.textContent = 'Querying...';
+  try {
+    const res = await fetch('/api/status/refresh', { method: 'POST' });
+    render(await res.json());
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Refresh Status';
+  }
+}
+
+const PHASE_LABELS = {
+  si5332:            'Si5332: ensure ACTIVE',
+  si5332_outputs:    'Si5332: reapply saved output channels',
+  master_unlock:     'Unlock is_master/enum deadlock',
+  enum:              'Aurora enum (get board count)',
+  board_id_assign:   'Broadcast board_id/per_hop_value',
+  is_master_assign:  'Assign master',
+  channel_up:        'channel_up check',
+  ext_clk_sel:       'Switch to external clock',
+  ext_clk_freq:      'Measure ext_clk frequency',
+  dac_mode_zero:     'Force dac_mode to zero',
+  calib_report:      'Calibration readback comparison',
+};
+
+// 2026-08-10：跑之前先把全部已知 phase 畫成 pending 骨架，讓使用者一開始
+//就看到「總共會跑哪些步驟」，配合下面 renderInitPhaseProgress() 透過 SSE
+// 逐步把每個 phase 從 pending 換成 ✓/✗，取代原本「只有 Initializing...
+// 秒數、完全不知道卡在哪一步」的情況。
+function renderInitSkeleton() {
+  const panel = document.getElementById('init-panel');
+  const summary = document.getElementById('init-summary');
+  const list = document.getElementById('init-phases');
+  panel.style.display = 'block';
+  summary.innerHTML = '<strong>Initializing…</strong>';
+  list.innerHTML = Object.entries(PHASE_LABELS).map(([name, label]) => `
+    <li class="list-group-item bg-transparent d-flex align-items-baseline gap-2" data-phase="${name}">
+      <span class="phase-icon pending">…</span>
+      <span class="phase-name">${label}</span>
+    </li>`).join('');
+  markCurrentInitPhase();
+}
+
+// 目前「還沒有結果的第一個 phase」視為正在跑的那一步，用粗體標出來——
+// 後端只在 phase 做完當下才廣播（見 app.py api_init() 的 on_phase
+// callback），沒有「開始跑某 phase」這個事件，用這個推論法近似即可，
+// 不需要為此改動後端事件模型。
+function markCurrentInitPhase() {
+  const list = document.getElementById('init-phases');
+  list.querySelectorAll('li').forEach(li => li.classList.remove('current'));
+  const next = list.querySelector('.phase-icon.pending');
+  if (next) next.closest('li').classList.add('current');
+}
+
+// 2026-08-20：`enum` phase 失敗時（單板操作、SFP 迴路沒接）是預期中的
+// 正常情況，不是真的故障——原本跟其他 phase 共用 ✗（fail，紅色），使用者
+// 反饋看起來像失敗容易誤會，改用 ⚠️（warn，橘色）跟其他真正的失敗分開。
+// 只有 enum 這個 phase 套用，其餘 phase 失敗維持原本的 ✗/fail（那些才是
+// 真正需要排查的故障）。
+function phaseIconInfo(p) {
+  if (p.ok) return { symbol: '✓', cls: 'ok' };
+  if (p.name === 'enum') return { symbol: '⚠️', cls: 'warn' };
+  return { symbol: '✗', cls: 'fail' };
+}
+
+// 每個 phase 一做完，後端就透過 SSE 廣播一次 {type:'init_progress', name,
+// ok, detail, error}（跟 /api/init 最終回應裡 phases[] 的單一項目同一個
+// 形狀），這裡只更新對應那個 <li>，不重畫整個清單。
+function renderInitPhaseProgress(entry) {
+  const li = document.querySelector(`#init-phases li[data-phase="${entry.name}"]`);
+  if (!li) return;
+  const icon = li.querySelector('.phase-icon');
+  const info = phaseIconInfo(entry);
+  icon.textContent = info.symbol;
+  icon.className = `phase-icon ${info.cls}`;
+  if (entry.error) {
+    const errClass = info.cls === 'warn' ? 'text-warning' : 'text-danger';
+    li.insertAdjacentHTML('beforeend', `<span class="${errClass}">${entry.error}</span>`);
+  }
+  markCurrentInitPhase();
+}
+
+function renderInitResult(result) {
+  const panel = document.getElementById('init-panel');
+  const summary = document.getElementById('init-summary');
+  const list = document.getElementById('init-phases');
+  panel.style.display = 'block';
+
+  summary.innerHTML = result.ok
+    ? `<strong class="text-success">Initialization complete</strong> — total_boards=${result.total_boards}`
+    : `<strong class="text-danger">Initialization aborted</strong>${result.total_boards ? ' — total_boards=' + result.total_boards : ''}`;
+
+  list.innerHTML = result.phases.map(p => {
+    const info = phaseIconInfo(p);
+    const errClass = info.cls === 'warn' ? 'text-warning' : 'text-danger';
+    return `
+    <li class="list-group-item bg-transparent d-flex align-items-baseline gap-2" data-phase="${p.name}">
+      <span class="phase-icon ${info.cls}">${info.symbol}</span>
+      <span class="phase-name">${PHASE_LABELS[p.name] || p.name}</span>
+      ${p.error ? `<span class="${errClass}">${p.error}</span>` : ''}
+    </li>`;
+  }).join('');
+
+  if (result.boards) {
+    render(result.boards);
+    document.getElementById('timestamp').textContent =
+      'Last updated: ' + new Date().toLocaleTimeString('en-US', { hour12: false });
+
+    // Calibration tab's Live/Flash values were fetched once, either at page
+    // load or the first time someone opened that tab (see buildCalibTab()).
+    // If that happened before this Initialize System run (e.g. right after
+    // a fresh page load, before boards were enumerated), those T_QUERY reads
+    // failed silently (query_type mismatch — boards weren't up yet) and the
+    // tab was stuck showing "-" with no way to recover short of a full page
+    // reload (found 2026-08-03 while reviewing the UI). Only re-fetch if the
+    // Calibration tab's DOM actually exists yet (calibBuilt) — otherwise
+    // readCalib()'s renderCalibStatus() would hit missing elements.
+    if (typeof calibBuilt !== 'undefined' && calibBuilt) {
+      Object.keys(result.boards).map(Number).forEach(readCalib);
+    }
+  }
+}
+
+async function runInit() {
+  const btn = document.getElementById('init-btn');
+  btn.disabled = true;
+  const startTs = performance.now();
+  btn.textContent = 'Initializing... (0s)';
+  const tick = setInterval(() => {
+    btn.textContent = `Initializing... (${Math.round((performance.now() - startTs) / 1000)}s)`;
+  }, 1000);
+  renderInitSkeleton();
+  try {
+    const res = await fetch('/api/init', { method: 'POST' });
+    if (!res.ok) throw new Error(`server returned HTTP ${res.status}`);
+    renderInitResult(await res.json());
+  } catch (err) {
+    // 2026-08-10：原本只有 try/finally，request 失敗（斷線/逾時/連線中斷）
+    // 會被吞掉，畫面上什麼提示都沒有，按鈕無聲跳回原狀——今天實際遇到的
+    // USB stale handle 卡死就是這樣，看起來像「按了沒反應」。現在改成
+    // 明確顯示失敗訊息，複用跟成功時同一組 #init-panel/#init-summary。
+    // list 故意不清空——保留 renderInitSkeleton()/SSE 進度更新到目前為止
+    // 的畫面，讓使用者看得出「跑到哪一步斷的」，不是整個清空看不出線索。
+    const summary = document.getElementById('init-summary');
+    summary.innerHTML = `<strong class="text-danger">Initialize System failed</strong> — ${err.message || err}. Connection may have been lost (e.g. boards were just power-cycled) — try again.`;
+  } finally {
+    clearInterval(tick);
+    btn.disabled = false;
+    btn.textContent = 'Initialize System';
+  }
+}
+
+
+function inlineConfirm(boxId, message, lockEls, onConfirm, onCancel) {
+  const box = document.getElementById(boxId);
+  lockEls.forEach(el => { el.disabled = true; });
+  box.innerHTML = `
+    <p>${message}</p>
+    <p>
+      <button type="button" class="inline-confirm-yes">Confirm</button>
+      <button type="button" class="btn-secondary inline-confirm-no">Cancel</button>
+    </p>`;
+  box.querySelector('.inline-confirm-yes').onclick = () => onConfirm();
+  box.querySelector('.inline-confirm-no').onclick = () => {
+    box.innerHTML = '';
+    lockEls.forEach(el => { el.disabled = false; });
+    if (onCancel) onCancel();
+  };
+}
+
+function handleEvent(msg) {
+  if (msg.type === 'status') {
+    render(msg.boards);
+    document.getElementById('timestamp').textContent =
+      'Last updated: ' + new Date().toLocaleTimeString('en-US', { hour12: false });
+  } else if (msg.type === 'init') {
+    renderInitResult(msg);
+  } else if (msg.type === 'init_progress') {
+    renderInitPhaseProgress(msg);
+  } else if (msg.type === 'calib') {
+    // All boards' calib sections exist in the DOM (just hidden/shown), so this
+    // is safe to apply even if that board isn't the one currently visible.
+    renderCalibStatus(msg.dest_id, msg);
+  } else if (msg.type === 'calib_flash') {
+    // "Save to Flash" completed (possibly on another browser) — update just
+    // the Flash column, Live values weren't touched by this action.
+    if (msg.flash) renderFlashStatus(msg.dest_id, msg.flash);
+  } else if (msg.type === 'si5332_outputs') {
+    renderSi5332Outputs(msg);
+  } else if (msg.type === 'arm') {
+    // 2026-08-20 新增：跟其他 arm_*()（Bulk DDR/multitone 等）broadcast 同一種
+    // 「別的瀏覽器觸發也要讓這邊看到最新狀態」用法——test1 目前只有
+    // armed_ddr 這個摘要需要更新，其餘欄位（scale_cfg 等）這個事件不會動到。
+    if (msg.dest_id !== undefined && msg.armed_ddr && lastStatus && lastStatus[msg.dest_id]) {
+      lastStatus[msg.dest_id].armed_ddr = msg.armed_ddr;
+      renderTest1ArmedStatus();
+      Object.keys(ROTATION_TESTS).forEach(t => { if (rotationBuilt[t]) renderRotationArmedStatus(t); });
+    }
+  }
+}
+
+function connectEvents() {
+  const es = new EventSource('/api/events');
+  es.onmessage = (e) => handleEvent(JSON.parse(e.data));
+  es.onerror = () => {
+    // 瀏覽器內建會自動重連，這裡不用手動重試；只在畫面上留個線索方便除錯。
+    console.warn('[sse] connection lost, browser will auto-reconnect');
+  };
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────
+let diagnosticsLoaded = false;
+let ifftcalLoaded = false;
+function switchTab(name) {
+  document.querySelectorAll('.tab-panel').forEach(p => { p.style.display = 'none'; });
+  document.getElementById(`tab-${name}`).style.display = 'block';
+  // Scoped to the top-level nav-tabs bar only (2026-08-03: real Bootstrap
+  // .nav.nav-tabs/.nav-link now, was a hand-rolled .tabs/.tab-btn) — the
+  // Register/Flash sub-tab switcher uses its own .bs-nav-link class, no
+  // collision, but keep this scoped in case something else ever reuses
+  // .nav-link too (see 2026-07-31 bug: an unscoped selector here wiped out
+  // an unrelated component's "active" state every time this ran).
+  document.querySelectorAll('.nav-tabs > .nav-item > .nav-link').forEach(b => b.classList.remove('active'));
+  document.getElementById(`tab-btn-${name}`).classList.add('active');
+  if (name === 'diagnostics' && !diagnosticsLoaded) {
+    diagnosticsLoaded = true;
+    si5332RefreshOutputs();
+  }
+  if (name === 'ifftcal' && !ifftcalLoaded) {
+    ifftcalLoaded = true;
+    refreshIfftGainCorrectionList();
+  }
+}
+
+// ── Calibration tab ──────────────────────────────────────────────────────
+// Row structure (8 scale_cfg rows + 32 calib_coef rows) only needs building once;
+// readCalib()/renderCalibStatus() just fill in "current" cells and pre-fill the
+// "new value" inputs with the current value (edit-in-place, not retype-from-scratch).
+
+function ampCtrlChannelLabel(ch) {
+  const zmod = ch >> 1;
+  const chn = (ch & 1) ? 2 : 1;
+  return `${ch} (z${zmod} ch${chn})`;
+}
+
+function calibCoefLabel(idx) {
+  // Bit layout verified against rtl/awg_calib_regs.v (see calib_ctrl.py docstring):
+  // bit4=Mult/Add, bit3=Hg/Lg (this is the RTL/official Digilent IP's own
+  // native naming — bit3=0 wires straight through to cExtCh1HgMultCoef etc,
+  // see create_bd.tcl:4437-4446), bit2=ch1/ch2, bits[1:0]=zmod.
+  // Empirically confirmed on the scope (2026-07-31): with scale_cfg bit=1
+  // (+/-5V), zeroing the bit3=0 ("Hg") coefficient collapsed the output to
+  // 0V — so native Hg is indeed +/-5V, matching "higher gain = bigger swing".
+  const isAdd = (idx >> 4) & 1;
+  const hg = !((idx >> 3) & 1);  // bit3: 0=Hg(+/-5V), 1=Lg(+/-1.25V)
+  const ch2 = (idx >> 2) & 1;
+  const zmod = idx & 0x3;
+  // channel = zmod*2+ch2, same 0-7 numbering as the Scale Config table's "ch"
+  // column (see ampCtrlChannelLabel()) — spelling out "z3 ch2 (+/-5V)" here
+  // too was redundant with that table, per user feedback 2026-08-03.
+  const channel = zmod * 2 + ch2;
+  return `${isAdd ? 'Add' : 'Mult'} ${hg ? 'HG' : 'LG'} ch${channel}`;
+}
+
+// Boards are shown/hidden (not a dropdown) — same pattern as the Control/
+// Calibration tab switch. Each board gets its own full set of DOM elements
+// (ids suffixed with destId) built once; switching just toggles display.
+let calibBuilt = false;
+let currentCalibBoard = null;
+
+// idx bit layout (Mult/Add, HG/LG, zmod, ch2 — see calibCoefLabel()) reversed:
+// given a channel (0-7, same numbering as ampCtrlChannelLabel()/Scale Config),
+// which of the 32 register indices are its 4 Mult/Add x HG/LG coefficients.
+function calibCoefIdxForChannel(channel, isAdd, lg) {
+  const zmod = channel >> 1;
+  const ch2 = channel & 1;
+  return (isAdd ? 0x10 : 0) | (lg ? 0x08 : 0) | (ch2 << 2) | zmod;
+}
+
+// Order within a channel card: the active range's Mult/Add pair grouped
+// together (HG first, then LG) — whichever pair is currently active (see
+// markCalibCoefActiveRows()) reads as one contiguous block, not scattered.
+function channelCoefIndices(channel) {
+  return [
+    calibCoefIdxForChannel(channel, 0, false),  // Mult HG
+    calibCoefIdxForChannel(channel, 1, false),  // Add HG
+    calibCoefIdxForChannel(channel, 0, true),   // Mult LG
+    calibCoefIdxForChannel(channel, 1, true),   // Add LG
+  ];
+}
+
+// Which Mult/Add pair is actually driving this channel's output right now —
+// same XOR relationship as markCalibCoefActiveRows() (scale_cfg bit=1/+-5V
+// activates the HG pair, not LG — empirically confirmed on the scope,
+// 2026-07-31), used by the overview table (2026-08-03) to show one
+// unambiguous "what's live" number per channel instead of all 4.
+function activeCoefForChannel(scaleCfg, calibCoef, channel) {
+  const scaleBit = (scaleCfg >> channel) & 1;  // 0=+/-1.25V, 1=+/-5V
+  const activeLg = scaleBit === 0;
+  return {
+    mult: calibCoef[calibCoefIdxForChannel(channel, 0, activeLg)],
+    add: calibCoef[calibCoefIdxForChannel(channel, 1, activeLg)],
+  };
+}
+
+// Three rows per board (2026-08-03, user feedback: scale/mult/add should
+// each be their own row, not mult+add crammed into one cell — one column
+// per channel, so 5-decimal values still have plenty of room).
+function calibOverviewRowHtml(destId) {
+  const scaleCells = Array.from({ length: 8 }, (_, ch) => `<td id="calib-overview-scale-${destId}-${ch}">-</td>`).join('');
+  const multCells = Array.from({ length: 8 }, (_, ch) => `<td id="calib-overview-mult-${destId}-${ch}">-</td>`).join('');
+  const addCells = Array.from({ length: 8 }, (_, ch) => `<td id="calib-overview-add-${destId}-${ch}">-</td>`).join('');
+  // Label cells get an explicit class rather than relying on nth-child()
+  // position — the board-id cell's rowspan="3" means it's only actually
+  // present as a DOM child in the first of these 3 rows, so "mult"/"add"
+  // end up as each their own row's :first-child, not :nth-child(2) like
+  // "scale" is; a positional selector can't treat them all the same way
+  // (found 2026-08-03 when the alignment fix only applied to "scale").
+  return `
+    <tr id="calib-overview-row-scale-${destId}">
+      <td class="overview-board-id" rowspan="3">${destId}</td>
+      <td class="overview-row-label">scale</td>${scaleCells}
+    </tr>
+    <tr id="calib-overview-row-mult-${destId}">
+      <td class="overview-row-label">mult</td>${multCells}
+    </tr>
+    <tr id="calib-overview-row-add-${destId}">
+      <td class="overview-row-label">add</td>${addCells}
+    </tr>`;
+}
+
+function updateCalibOverviewRows(destId, scaleCfg, calibCoef) {
+  for (let ch = 0; ch < 8; ch++) {
+    const scaleEl = document.getElementById(`calib-overview-scale-${destId}-${ch}`);
+    if (scaleEl) scaleEl.textContent = ((scaleCfg >> ch) & 1) ? '5V' : '1.25V';
+    const { mult, add } = activeCoefForChannel(scaleCfg, calibCoef, ch);
+    const multEl = document.getElementById(`calib-overview-mult-${destId}-${ch}`);
+    if (multEl) multEl.textContent = (mult / 65536).toFixed(CALIB_COEF_DECIMALS);
+    const addEl = document.getElementById(`calib-overview-add-${destId}-${ch}`);
+    if (addEl) addEl.textContent = (add / 65536).toFixed(CALIB_COEF_DECIMALS);
+  }
+}
+
+// Short form for use inside a channel card, where the channel number is
+// already the card's title — repeating "ch7" on every row (like
+// calibCoefLabel() does) would be redundant. calibCoefLabel() itself is kept
+// as-is for contexts that span multiple channels (Set All's validation
+// errors), where naming the channel is still useful.
+function calibCoefShortLabel(idx) {
+  const isAdd = (idx >> 4) & 1;
+  const hg = !((idx >> 3) & 1);
+  return `${isAdd ? 'Add' : 'Mult'} ${hg ? 'HG' : 'LG'}`;
+}
+
+// One card per output channel, Live + Flash + new-value all in the same
+// table (2026-08-03: merged from separate Register/Flash sub-tabs — the
+// Flash sub-tab used to be a read-only mirror of the same 8 cards with
+// nothing editable on it, which per user feedback wasn't earning its own
+// tab; showing the flash column right next to live in the same row is more
+// useful anyway).
+function calibChannelCardHtml(destId, ch) {
+  const rows = channelCoefIndices(ch).map(idx => `
+    <tr id="calib-coef-row-${destId}-${idx}">
+      <td>${calibCoefShortLabel(idx)}</td>
+      <td id="calib-coef-flash-${destId}-${idx}">-</td>
+      <td id="calib-coef-cur-${destId}-${idx}">-</td>
+      <td><input type="number" class="form-control form-control-sm" id="calib-coef-new-${destId}-${idx}" min="0" max="1" step="0.00001" placeholder="0-1"></td>
+    </tr>`).join('');
+  return `
+    <div class="col">
+    <div class="card calib-card channel-card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h2 class="h6 mb-0">${ampCtrlChannelLabel(ch)}</h2>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-primary btn-sm" onclick="setChannel(${destId}, ${ch}, this)">Set Live Value</button>
+          <button type="button" class="btn btn-outline-primary btn-sm" onclick="saveAllToFlash(${destId}, 'channel-result-${destId}-${ch}', [this])">Set Flash Value</button>
+        </div>
+      </div>
+      <div class="card-body">
+      <div class="d-flex gap-3 align-items-center mb-3">
+        <span class="text-secondary">flash: <span id="scale-cfg-flash-${destId}-${ch}">-</span></span>
+        <div class="btn-group btn-group-sm" role="group">
+          <input type="radio" class="btn-check scale-cfg-radio-${destId}" name="scale-${destId}-${ch}" data-ch="${ch}" value="0" id="scale-${destId}-${ch}-0" autocomplete="off" checked>
+          <label class="btn btn-outline-primary scale-range-btn" for="scale-${destId}-${ch}-0">&plusmn;1.25V</label>
+          <input type="radio" class="btn-check scale-cfg-radio-${destId}" name="scale-${destId}-${ch}" data-ch="${ch}" value="1" id="scale-${destId}-${ch}-1" autocomplete="off">
+          <label class="btn btn-outline-primary scale-range-btn" for="scale-${destId}-${ch}-1">&plusmn;5V</label>
+        </div>
+      </div>
+      <table class="table table-sm table-bordered align-middle calib-table">
+        <thead><tr><th>coef</th><th>flash</th><th>live</th><th>new value</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="result-box" id="channel-result-${destId}-${ch}"></div>
+      </div>
+    </div>
+    </div>`;
+}
+
+// No section-level "Set All"/"Reset to defaults" buttons (2026-08-03,
+// removed per user feedback): every card already has its own Set Live
+// Value/Set Flash Value, so a bulk version is redundant; resetting
+// calib_coef back to hardware defaults is a rare, boot-time-adjacent
+// operation that doesn't need a quick one-click affordance in this UI (the
+// backend /api/board/<id>/calib_reset route is untouched, just not wired
+// to a button anymore).
+function calibSectionHtml(destId) {
+  const cards = Array.from({ length: 8 }, (_, ch) => calibChannelCardHtml(destId, ch)).join('');
+
+  return `
+    <div class="calib-section" id="calib-section-${destId}">
+      <p class="muted-text">
+        Mult/Add coefficients: decimal fraction, 1.0 = unity, minimum step 0.00001.
+        Hardware defaults are Mult=1.0, Add=0.
+      </p>
+      <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3 channel-card-grid">${cards}</div>
+    </div>`;
+}
+
+function buildCalibTab(boardIds) {
+  if (calibBuilt || boardIds.length === 0) return;
+  calibBuilt = true;
+
+  document.getElementById('calib-overview-toolbar').innerHTML =
+    boardIds.map(id => `<button type="button" onclick="editBoard(${id})">Edit Board ${id}</button>`).join('')
+    + `<span class="timestamp" id="calib-timestamp">Loading initial values...</span>`;
+  document.getElementById('calib-overview-tbody').innerHTML = boardIds.map(calibOverviewRowHtml).join('');
+
+  document.getElementById('calib-sections').innerHTML = boardIds.map(calibSectionHtml).join('');
+  boardIds.forEach((id, i) => {
+    document.getElementById(`calib-section-${id}`).style.display = i === 0 ? 'block' : 'none';
+  });
+  currentCalibBoard = boardIds[0];
+
+  // Fetch initial values for every board up front (once), so switching board
+  // tabs (or the overview table) doesn't show stale "-" placeholders. This is
+  // a one-time read at startup, not background polling.
+  boardIds.forEach(readCalib);
+}
+
+// Overview (all boards' scale + active coef in one table) vs edit (single
+// board, Register/Flash sub-tabs, per-channel cards) — 2026-08-03, per user
+// feedback that the tab should default to a read-only "everything at a
+// glance" view, with an explicit step to enter the modification page.
+function switchCalibView(view) {
+  document.getElementById('calib-overview').style.display = view === 'overview' ? 'block' : 'none';
+  document.getElementById('calib-edit').style.display = view === 'edit' ? 'block' : 'none';
+}
+
+// The edit view no longer has its own Board 0/1/2 selector (2026-08-03,
+// user feedback: it duplicated the overview's "Edit Board N" buttons) — the
+// only way in is editBoard() from the overview, so switchCalibBoard() below
+// is purely internal now (no clickable pills to keep in sync), just shows
+// which board is being edited as plain text.
+function editBoard(destId) {
+  switchCalibView('edit');
+  switchCalibBoard(destId);
+}
+
+function switchCalibBoard(destId) {
+  document.querySelectorAll('.calib-section').forEach(el => { el.style.display = 'none'; });
+  document.getElementById(`calib-section-${destId}`).style.display = 'block';
+  document.getElementById('calib-edit-board-label').textContent = `Editing Board ${destId}`;
+  currentCalibBoard = destId;
+}
+
+// Which calib_coef rows are the ones actually driving output right now,
+// based on the current scale_cfg bit for that channel. scale_cfg bit index
+// uses the same "zmod*2+ch" ordering as amp_ctrl (verified against
+// rtl/awg_calib_regs.v: z0_ch1_scale=scale_cfg[0], z0_ch2_scale=scale_cfg[1], ...).
+//
+// IMPORTANT (2026-07-31, empirically confirmed on the scope): calib_sel
+// bit3 and the scale_cfg bit are NOT the same encoding — they're inverted.
+// scale_cfg bit=1 (+/-5V) actually activates the calib_sel bit3=0 ("Hg")
+// bank, not bit3=1. Verified by zeroing calib_coef[0] (bit3=0, z0/ch1 Hg
+// Mult) while scale_cfg=1 (+/-5V, confirmed on scope) and watching the
+// output collapse to 0V. So "active" is an XOR (bit values differ), not
+// equality — do not "simplify" this back to === without re-testing on
+// real hardware first.
+function markCalibCoefActiveRows(rowIdPrefix, scaleCfg) {
+  if (scaleCfg === undefined) return;
+  for (let idx = 0; idx < 32; idx++) {
+    const zmod = idx & 0x3;
+    const ch2 = (idx >> 2) & 1;
+    const rangeBit = (idx >> 3) & 1;  // 0=Hg, 1=Lg (RTL/IP native naming)
+    const scaleBit = (scaleCfg >> (zmod * 2 + ch2)) & 1;  // 0=+/-1.25V, 1=+/-5V
+    const row = document.getElementById(`${rowIdPrefix}-${idx}`);
+    if (row) row.classList.toggle('row-inactive', rangeBit === scaleBit);
+  }
+}
+
+function updateCalibCoefActiveRows(destId, scaleCfg) {
+  markCalibCoefActiveRows(`calib-coef-row-${destId}`, scaleCfg);
+}
+
+// Flash column: separate from Live, shown read-only, only refreshed by an
+// explicit GET /calib (initial load) or after a "Save to Flash" completes —
+// NOT after a plain Set/Set All/Reset, which only touch the Live register.
+// `flash` may be missing/null/{"error":...} (QT_FLASH_STATUS content
+// extension not built yet, see flash_ctrl.py) — render "-" in that case
+// rather than throwing, so the rest of the Calibration tab keeps working.
+function renderFlashStatus(destId, flash) {
+  const known = flash && flash.error === undefined && flash.scale_cfg !== undefined;
+  for (let ch = 0; ch < 8; ch++) {
+    const el = document.getElementById(`scale-cfg-flash-${destId}-${ch}`);
+    if (!el) continue;
+    el.textContent = known ? (((flash.scale_cfg >> ch) & 1) ? '±5V' : '±1.25V') : '-';
+  }
+  for (let idx = 0; idx < 32; idx++) {
+    const el = document.getElementById(`calib-coef-flash-${destId}-${idx}`);
+    if (!el) continue;
+    el.textContent = known ? (flash.calib_coef[idx] / 65536).toFixed(CALIB_COEF_DECIMALS) : '-';
+  }
+  // Row dimming (row-inactive) is driven by the Live scale_cfg only, via
+  // updateCalibCoefActiveRows() below — since live and flash merged into one
+  // row per coefficient (2026-08-03), dimming the same row a second time
+  // based on flash's own (possibly different) scale_cfg would just fight
+  // with that; flash is secondary reference info here, live is what's
+  // actually driving the DAC and is what the dimming should reflect.
+}
+
+function renderCalibStatus(destId, data) {
+  const tsEl = document.getElementById('calib-timestamp');
+  if (tsEl) tsEl.textContent = 'Last updated: ' + new Date().toLocaleTimeString('en-US', { hour12: false });
+  if (data.error || !data.ok) return;
+
+  for (let ch = 0; ch < 8; ch++) {
+    const bit = (data.scale_cfg >> ch) & 1;
+    const radio = document.querySelector(`.scale-cfg-radio-${destId}[data-ch="${ch}"][value="${bit}"]`);
+    if (radio) radio.checked = true;
+  }
+
+  data.calib_coef.forEach((val, idx) => {
+    document.getElementById(`calib-coef-cur-${destId}-${idx}`).textContent = (val / 65536).toFixed(CALIB_COEF_DECIMALS);
+    document.getElementById(`calib-coef-new-${destId}-${idx}`).value = (val / 65536).toFixed(CALIB_COEF_DECIMALS);
+  });
+
+  updateCalibCoefActiveRows(destId, data.scale_cfg);
+  updateCalibOverviewRows(destId, data.scale_cfg, data.calib_coef);
+
+  // Only present on the initial GET /calib response (see app.py
+  // api_board_calib_get) — plain Set/Set All/Reset responses don't include
+  // it, so the Flash column is correctly left untouched by those actions.
+  if ('flash' in data) renderFlashStatus(destId, data.flash);
+}
+
+async function readCalib(destId) {
+  try {
+    const res = await fetch(`/api/board/${destId}/calib`);
+    renderCalibStatus(destId, await res.json());
+  } catch (e) {
+    const tsEl = document.getElementById('calib-timestamp');
+    if (tsEl) tsEl.textContent = `Error: ${e}`;
+  }
+}
+
+// scale_cfg is a single 8-bit register covering all 8 channels — there's no
+// way to write just one channel's bit, so setChannel() below always sends
+// the full byte built from whatever every channel card's scale radio
+// currently shows on screen, not just the channel that triggered the click.
+async function postScaleCfgFromRadios(destId) {
+  let value = 0;
+  for (let ch = 0; ch < 8; ch++) {
+    const checked = document.querySelector(`.scale-cfg-radio-${destId}[data-ch="${ch}"]:checked`);
+    if (checked && Number(checked.value) === 1) value |= (1 << ch);
+  }
+  const res = await fetch(`/api/board/${destId}/scale_cfg`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value }),
+  });
+  return res.json();
+}
+
+// Calib Coef values are shown/entered as a plain decimal fraction (0-1),
+// not raw hex — most operators won't know what "0x10000" means, but "1.0"
+// (unity) is intuitive. 1.0 always maps to the raw 18-bit register value
+// 0x10000 (Q1.16 fixed point, see calib_ctrl.py), so the conversion is
+// just a fixed x65536 scale, same convention this project already uses
+// for amp_ctrl/T_AMP_CTRL elsewhere.
+//
+// 5 decimal places (2026-08-03, was 4): the register's own step size is
+// 1/65536 ~= 0.0000153, finer than 4 decimals (0.0001) can distinguish —
+// about 6-7 adjacent raw values were rounding to the same displayed string,
+// and re-submitting a "read back" 4-decimal value could silently nudge the
+// actual register by a couple of raw steps. 5 decimals (0.00001 step) is
+// finer than the register's own resolution, so display is effectively
+// lossless.
+const CALIB_COEF_DECIMALS = 5;
+
+function fractionToRaw(str) {
+  return Math.round(Number(str) * 65536);
+}
+
+// Validates a set of "new value" inputs (by idx) up front, aborting the
+// whole batch on the first bad one instead of partially applying.
+function collectCalibCoefValues(destId, indices, box) {
+  const values = {};
+  for (const idx of indices) {
+    const raw = document.getElementById(`calib-coef-new-${destId}-${idx}`).value;
+    const fraction = Number(raw);
+    if (!Number.isFinite(fraction) || fraction < 0 || fraction > 1) {
+      box.innerHTML = `<p class="error">${calibCoefLabel(idx)}: value must be between 0 and 1</p>`;
+      return null;
+    }
+    values[idx] = fractionToRaw(raw);
+  }
+  return values;
+}
+
+async function setChannel(destId, ch, btn) {
+  const box = document.getElementById(`channel-result-${destId}-${ch}`);
+  const values = collectCalibCoefValues(destId, channelCoefIndices(ch), box);
+  if (values === null) return;
+  box.innerHTML = '<p class="muted-text">Setting...</p>';
+  btn.disabled = true;
+  try {
+    const scaleData = await postScaleCfgFromRadios(destId);
+    if (!scaleData.ok) { box.innerHTML = `<p class="error">${scaleData.error}</p>`; return; }
+    const res = await fetch(`/api/board/${destId}/calib_coef_bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values }),
+    });
+    const data = await res.json();
+    box.innerHTML = data.ok ? '<p class="muted-text">Set.</p>' : `<p class="error">${data.error}</p>`;
+    renderCalibStatus(destId, data);
+  } catch (e) {
+    box.innerHTML = `<p class="error">${e}</p>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// "Set Flash Value" is a separate, second-tier action from "Set Live Value"
+// (see calib_ctrl.py vs flash_ctrl.py) — it persists whatever is currently
+// the Live value (already visible on screen / already applied via a "Set
+// Live Value"), not the "new value" draft inputs. Confirmed before sending
+// since it overwrites whatever was previously saved to that board's flash
+// sectors.
+//
+// Backed by two independent flash sectors/endpoints (scale_cfg and
+// calib_coef — see the Flash 儲存佈局 table in PROJECT.md), called here
+// sequentially and reported as one combined action per 2026-08-03 user
+// feedback (previously two separate buttons on their own read-only "Flash"
+// sub-tab, merged away — see calibSectionHtml()/calibChannelCardHtml()).
+// boxId/lockEls are passed in explicitly — every channel card has its own
+// "Set Flash Value" button, each targeting that card's own result box, but
+// they all trigger the identical whole-board save (see comment above).
+function saveAllToFlash(destId, boxId, lockEls) {
+  const box = document.getElementById(boxId);
+  inlineConfirm(boxId,
+    `Save the current Live Scale Config and all 32 Calib Coef values on board ${destId} to flash? This replaces whatever was previously saved and takes effect automatically on the next reload/power-up.`,
+    lockEls,
+    async () => {
+      box.innerHTML = '<p class="muted-text">Saving to flash...</p>';
+      try {
+        const scaleRes = await fetch(`/api/board/${destId}/scale_cfg/save_flash`, { method: 'POST' });
+        const scaleData = await scaleRes.json();
+        if (!scaleData.ok) { box.innerHTML = `<p class="error">${scaleData.error}</p>`; return; }
+        const coefRes = await fetch(`/api/board/${destId}/calib_coef/save_flash`, { method: 'POST' });
+        const coefData = await coefRes.json();
+        box.innerHTML = coefData.ok ? '<p class="muted-text">Saved to flash.</p>' : `<p class="error">${coefData.error}</p>`;
+        if (coefData.flash) renderFlashStatus(destId, coefData.flash);
+      } catch (e) {
+        box.innerHTML = `<p class="error">${e}</p>`;
+      } finally {
+        lockEls.forEach(el => { el.disabled = false; });
+      }
+    });
+}
+
+// ── Diagnostics tab: Si5332 output channels ─────────────────────────────────
+// Single global device (not per-board). Unlike the rest of this app, this
+// table IS auto-fetched once when the tab is first opened (see switchTab) —
+// static placeholder rows cover the gap until that first fetch resolves.
+//
+// Current vs Desired vs Set (2026-08-03, replacing "click ON/OFF = apply
+// immediately"): per user feedback, picking a Desired state should only
+// stage it — nothing is sent to the device until that row's "Set" button
+// (disabled while Desired matches Current) is explicitly clicked. Desired
+// uses the same Bootstrap "Radio Toggle Buttons" pattern as the Calibration
+// tab's scale range (.btn-check + label.btn, real <input type="radio">
+// underneath) — si5332DesiredChanged() is just the onchange hook that
+// enables/disables the Set button, it doesn't touch the device.
+function renderSi5332Outputs(data) {
+  const tbody = document.getElementById('si5332-outputs-tbody');
+  if (!data || !data.ok) {
+    tbody.innerHTML = `<tr><td colspan="4" class="text-danger">${(data && data.error) || 'read failed'}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = Array.from({ length: 6 }, (_, ch) => {
+    const enabled = !!data.channels[ch];
+    return `
+      <tr data-current="${enabled ? 1 : 0}">
+        <td>OUT${ch}</td>
+        <td><span class="badge ${enabled ? 'text-bg-success' : 'text-bg-secondary'}">${enabled ? 'ON' : 'OFF'}</span></td>
+        <td>
+          <div class="btn-group btn-group-sm" role="group">
+            <input type="radio" class="btn-check si5332-desired-radio-${ch}" name="si5332-desired-${ch}" value="1" id="si5332-desired-${ch}-on" ${enabled ? 'checked' : ''} onchange="si5332DesiredChanged(${ch})">
+            <label class="btn btn-outline-primary" for="si5332-desired-${ch}-on">ON</label>
+            <input type="radio" class="btn-check si5332-desired-radio-${ch}" name="si5332-desired-${ch}" value="0" id="si5332-desired-${ch}-off" ${!enabled ? 'checked' : ''} onchange="si5332DesiredChanged(${ch})">
+            <label class="btn btn-outline-primary" for="si5332-desired-${ch}-off">OFF</label>
+          </div>
+        </td>
+        <td><button type="button" class="btn btn-primary btn-sm" id="si5332-set-btn-${ch}" onclick="si5332SetOutputEnable(${ch})" disabled>Set</button></td>
+      </tr>`;
+  }).join('');
+}
+
+// No manual "Refresh Outputs" button (2026-08-03, removed per user
+// feedback) — this only ever runs once, from switchTab()'s auto-fetch on
+// first opening the tab; other browsers' changes already arrive live via
+// the si5332_outputs SSE broadcast (see handleEvent()), so there was no
+// remaining case a manual refresh actually covered.
+async function si5332RefreshOutputs() {
+  const box = document.getElementById('si5332-outputs-result');
+  try {
+    const res = await fetch('/api/si5332/outputs');
+    const data = await res.json();
+    renderSi5332Outputs(data);
+    box.innerHTML = data.ok ? '' : `<p class="error">${data.error}</p>`;
+  } catch (e) {
+    box.innerHTML = `<p class="error">${e}</p>`;
+  }
+}
+
+// All 6 rows share one physical device (one _si5332_lock on the backend),
+// so unlike the per-board actions above, locking is scoped to the whole
+// table, not just the clicked row — otherwise a second click on a
+// different channel while the first request is still in flight would just
+// queue silently with no visual sign anything was in progress. Includes
+// the Desired radio inputs too (not just Set buttons), so a change can't be
+// staged mid-request either.
+function si5332OutputToggleBtns() {
+  return Array.from(document.querySelectorAll('#si5332-outputs-tbody button, #si5332-outputs-tbody input[type="radio"]'));
+}
+
+// Purely local: enables/disables this row's "Set" button depending on
+// whether the just-picked Desired radio differs from that row's Current
+// (data-current, stamped by renderSi5332Outputs()) — no fetch here.
+function si5332DesiredChanged(channel) {
+  const row = document.getElementById(`si5332-set-btn-${channel}`).closest('tr');
+  const current = row.dataset.current === '1';
+  const desired = document.querySelector(`.si5332-desired-radio-${channel}:checked`).value === '1';
+  document.getElementById(`si5332-set-btn-${channel}`).disabled = (desired === current);
+}
+
+// Re-derives every row's Set-button disabled state from its own Current vs
+// Desired, instead of trusting a blind lockEls.forEach(disabled=false) —
+// needed after Cancel/error, since lockEls covers all 6 rows at once but
+// only the row actually being changed should end up with Set enabled.
+function si5332RestoreSetButtonStates() {
+  for (let ch = 0; ch < 6; ch++) {
+    if (document.getElementById(`si5332-set-btn-${ch}`)) si5332DesiredChanged(ch);
+  }
+}
+
+async function si5332DoSetOutput(channel, enable) {
+  const lockEls = si5332OutputToggleBtns();
+  lockEls.forEach(el => { el.disabled = true; });
+  const box = document.getElementById('si5332-outputs-result');
+  box.innerHTML = `<p class="muted-text">${enable ? 'Enabling' : 'Disabling'} OUT${channel}...</p>`;
+  try {
+    const res = await fetch(`/api/si5332/outputs/${channel}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: enable }),
+    });
+    const data = await res.json();
+    // Success re-renders the whole tbody with fresh Current/Desired/Set
+    // state (Desired reset to match the new Current, Set disabled again),
+    // so lockEls don't need explicit re-enabling on that path.
+    if (data.outputs) renderSi5332Outputs(data.outputs);
+    box.innerHTML = data.ok ? '' : `<p class="error">${data.error}</p>`;
+  } catch (e) {
+    box.innerHTML = `<p class="error">${e}</p>`;
+    lockEls.forEach(el => { el.disabled = false; });
+    si5332RestoreSetButtonStates();
+  }
+}
+
+// Reads the row's currently-picked Desired radio (not a parameter) since
+// this is now what the "Set" button itself calls once a change is staged.
+function si5332SetOutputEnable(channel) {
+  const enable = document.querySelector(`.si5332-desired-radio-${channel}:checked`).value === '1';
+  if (!enable) {
+    inlineConfirm('si5332-outputs-result',
+      `Turn OFF OUT${channel}? If a board is currently connected to this output, it will lose its external clock immediately.`,
+      si5332OutputToggleBtns(),
+      () => si5332DoSetOutput(channel, false),
+      si5332RestoreSetButtonStates);
+    return;
+  }
+  si5332DoSetOutput(channel, true);
+}
+
+// ── IFFT Gain Correction tab（2026-08-20 新增）──────────────────────────
+// 對應既有、原本完全沒有 UI 的 multitone_scan.py 校正表機制（list/save/
+// activate route 早就存在，這次只新增 delete route + 這整個分頁）。
+
+async function refreshIfftGainCorrectionList() {
+  const tbody = document.getElementById('ifftcal-tables-tbody');
+  const box = document.getElementById('ifftcal-result');
+  try {
+    const res = await fetch('/api/multitone_gain_correction/list');
+    const data = await res.json();
+    if (!data.ok) { box.innerHTML = `<p class="error">${data.error}</p>`; return; }
+    if (data.tables.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="3" class="muted-text">No tables saved yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.tables.map(t => `
+      <tr>
+        <td>${t.name}</td>
+        <td>${t.active ? '<span class="badge text-bg-success">active</span>' : ''}</td>
+        <td class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-primary btn-sm" ${t.active ? 'disabled' : ''}
+                  onclick="activateIfftGainCorrection('${t.name}')">Activate</button>
+          <button type="button" class="btn btn-outline-danger btn-sm"
+                  onclick="deleteIfftGainCorrection('${t.name}')">Delete</button>
+        </td>
+      </tr>`).join('');
+  } catch (e) {
+    box.innerHTML = `<p class="error">${e}</p>`;
+  }
+}
+
+function activateIfftGainCorrection(name) {
+  const box = document.getElementById('ifftcal-result');
+  box.innerHTML = '<p class="muted-text">Activating…</p>';
+  fetch('/api/multitone_gain_correction/activate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      box.innerHTML = data.ok ? '' : `<p class="error">${data.error}</p>`;
+      refreshIfftGainCorrectionList();
+    })
+    .catch(e => { box.innerHTML = `<p class="error">${e}</p>`; });
+}
+
+function deleteIfftGainCorrection(name) {
+  inlineConfirm('ifftcal-result', `Delete calibration table "${name}"? This cannot be undone.`,
+    Array.from(document.querySelectorAll('#ifftcal-tables-tbody button')),
+    () => {
+      const box = document.getElementById('ifftcal-result');
+      fetch(`/api/multitone_gain_correction/${encodeURIComponent(name)}`, { method: 'DELETE' })
+        .then(r => r.json())
+        .then(data => {
+          box.innerHTML = data.ok ? '' : `<p class="error">${data.error}</p>`;
+          refreshIfftGainCorrectionList();
+        })
+        .catch(e => { box.innerHTML = `<p class="error">${e}</p>`; });
+    });
+}
+
+function uploadIfftGainCorrection() {
+  const box = document.getElementById('ifftcal-result');
+  const name = document.getElementById('ifftcal-upload-name').value.trim();
+  const fileInput = document.getElementById('ifftcal-upload-file');
+  if (!name) { box.innerHTML = '<p class="error">table name is required</p>'; return; }
+  if (!fileInput.files.length) { box.innerHTML = '<p class="error">choose a file first</p>'; return; }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const lines = reader.result.split(/\r?\n/).map(l => l.trim()).filter(l => l !== '');
+    const values = lines.map(Number);
+    if (values.some(v => Number.isNaN(v))) {
+      box.innerHTML = '<p class="error">file contains a non-numeric line — one coefficient per line expected</p>';
+      return;
+    }
+    box.innerHTML = '<p class="muted-text">Uploading…</p>';
+    fetch('/api/multitone_gain_correction', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, values }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        box.innerHTML = data.ok
+          ? `<p>Saved "${data.name}" (${data.count} values).</p>`
+          : `<p class="error">${data.error}</p>`;
+        if (data.ok) {
+          fileInput.value = '';
+          document.getElementById('ifftcal-upload-name').value = '';
+          refreshIfftGainCorrectionList();
+        }
+      })
+      .catch(e => { box.innerHTML = `<p class="error">${e}</p>`; });
+  };
+  reader.onerror = () => { box.innerHTML = '<p class="error">failed to read file</p>'; };
+  reader.readAsText(fileInput.files[0]);
+}
+
+loadStatus();
+loadServerInfo();
+connectEvents();
+</script>
+<script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+</body>
+</html>
